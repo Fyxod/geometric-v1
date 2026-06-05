@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geometric-v1"
+version = "0.1.0"
+description = "Geometric perturbation plus diffusion and DeepFace comparison pipeline."
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "numpy>=1.24",
+  "pillow>=10.0",
+  "scipy>=1.10",
+  "opencv-python>=4.8",
+  "torch>=2.2",
+  "torchvision>=0.17",
+  "diffusers>=0.35.1",
+  "transformers>=4.41",
+  "accelerate>=0.30",
+  "safetensors>=0.4",
+  "deepface>=0.0.93",
+  "tensorflow>=2.16",
+  "tf-keras>=2.16",
+  "protobuf<6",
+]
+
+[project.scripts]
+geometric-v1 = "geometric_v1.pipeline:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

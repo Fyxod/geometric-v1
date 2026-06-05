@@ -1,0 +1,75 @@
+{
+  "input": "samples/original.png",
+  "output_dir": "output/run_001",
+  "prompt": "make the person look like a professional studio portrait",
+  "seed": 7,
+  "perturbations": [
+    {
+      "method": "homography",
+      "enabled": true,
+      "strength": 0.04
+    },
+    {
+      "method": "thin-plate-spline",
+      "enabled": true,
+      "strength": 0.025,
+      "grid": 7
+    },
+    {
+      "method": "delaunay",
+      "enabled": true,
+      "strength": 0.025,
+      "grid": 8
+    },
+    {
+      "method": "fft-phase",
+      "enabled": true,
+      "strength": 0.2,
+      "coefficients": 10
+    },
+    {
+      "method": "elastic",
+      "enabled": true,
+      "strength": 0.025,
+      "sigma": 12.0
+    },
+    {
+      "method": "rolling-shutter",
+      "enabled": true,
+      "strength": 0.03,
+      "rolling_frequency": 1.5,
+      "rolling_phase": 0.0,
+      "rolling_shear": 0.02,
+      "rolling_acceleration": 0.0
+    }
+  ],
+  "diffusion": {
+    "model_id": "timbrooks/instruct-pix2pix",
+    "device": "auto",
+    "gpu_index": 0,
+    "num_inference_steps": 10,
+    "guidance_scale": 7.5,
+    "image_guidance_scale": 1.0,
+    "max_size": 512
+  },
+  "deepface": {
+    "enabled": true,
+    "detector_backend": "skip",
+    "distance_metric": "cosine",
+    "enforce_detection": false,
+    "align": false,
+    "models": {
+      "VGG-Face": true,
+      "Facenet": true,
+      "Facenet512": true,
+      "OpenFace": true,
+      "DeepFace": true,
+      "DeepID": true,
+      "ArcFace": true,
+      "Dlib": false,
+      "SFace": true,
+      "GhostFaceNet": true,
+      "Buffalo_L": false
+    }
+  }
+}
