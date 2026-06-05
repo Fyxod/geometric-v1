@@ -18,6 +18,7 @@ dependencies = [
   "transformers>=4.41",
   "accelerate>=0.30",
   "safetensors>=0.4",
+  "requests>=2.32",
   "deepface>=0.0.93",
   "tensorflow>=2.16",
   "tf-keras>=2.16",

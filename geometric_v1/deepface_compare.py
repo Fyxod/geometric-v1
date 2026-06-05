@@ -8,12 +8,36 @@ from .config import DeepFaceConfig, DEFAULT_DEEPFACE_MODELS
 
 
 ALL_DEEPFACE_MODELS = tuple(DEFAULT_DEEPFACE_MODELS.keys())
+KNOWN_WEIGHT_URLS = {
+    "SFace": (
+        Path.home() / ".deepface" / "weights" / "face_recognition_sface_2021dec.onnx",
+        "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
+    )
+}
 
 
 def _match_percent(distance: float | None, threshold: float | None) -> float | None:
     if distance is None or threshold is None or threshold <= 0:
         return None
     return max(0.0, min(100.0, 100.0 * (1.0 - distance / (2.0 * threshold))))
+
+
+def _ensure_known_weight(model_name: str) -> None:
+    if model_name not in KNOWN_WEIGHT_URLS:
+        return
+    target, url = KNOWN_WEIGHT_URLS[model_name]
+    if target.exists() and target.stat().st_size > 0:
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    import requests
+
+    with requests.get(url, stream=True, timeout=120) as response:
+        response.raise_for_status()
+        with target.open("wb") as handle:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    handle.write(chunk)
 
 
 def compare_images(
@@ -41,6 +65,7 @@ def compare_images(
 
         started = time.perf_counter()
         try:
+            _ensure_known_weight(model_name)
             verification = DeepFace.verify(
                 img1_path=str(image_a),
                 img2_path=str(image_b),

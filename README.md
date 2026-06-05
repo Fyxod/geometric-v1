@@ -108,16 +108,16 @@ report.json
     "enforce_detection": false,
     "align": false,
     "models": {
-      "VGG-Face": true,
-      "Facenet": true,
-      "Facenet512": true,
-      "OpenFace": true,
-      "DeepFace": true,
-      "DeepID": true,
-      "ArcFace": true,
+      "VGG-Face": false,
+      "Facenet": false,
+      "Facenet512": false,
+      "OpenFace": false,
+      "DeepFace": false,
+      "DeepID": false,
+      "ArcFace": false,
       "Dlib": false,
       "SFace": true,
-      "GhostFaceNet": true,
+      "GhostFaceNet": false,
       "Buffalo_L": false
     }
   }
@@ -126,6 +126,8 @@ report.json
 
 DeepFace model notes:
 
+- `SFace` is enabled by default because it is the most stable Windows baseline in this setup.
+- The other model booleans are present and can be turned on, but their weights or optional dependencies may need manual setup.
 - `Dlib` is disabled by default because Windows installs often need a local C++ toolchain.
 - `Buffalo_L` is disabled by default because it may pull extra InsightFace/ONNX dependencies.
 - Turn either one on in `pipeline.json` when your environment supports it.
