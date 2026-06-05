@@ -70,3 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     report = run_pipeline(args.config)
     print(json.dumps(report["outputs"], indent=2))
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

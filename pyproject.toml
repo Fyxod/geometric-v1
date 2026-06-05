@@ -28,4 +28,4 @@ dependencies = [
 geometric-v1 = "geometric_v1.pipeline:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+include = ["geometric_v1*"]

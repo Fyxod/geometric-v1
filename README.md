@@ -22,6 +22,22 @@ python -m pip install -r requirements.txt
 
 If you want a CUDA-specific PyTorch install, follow the selector at the official PyTorch install page and install that wheel before `requirements.txt`.
 
+## Project Layout
+
+The package is directly at the repository root:
+
+```text
+geometric_v1/
+run_pipeline.py
+run_perturbations.py
+run_diffusion.py
+run_deepface_compare.py
+run_deepface_model_check.py
+pipeline.json
+```
+
+There is no `src/` layout.
+
 ## Full Pipeline
 
 Edit `pipeline.json`, especially:
@@ -36,6 +52,12 @@ Then run:
 
 ```powershell
 python run_pipeline.py --config pipeline.json
+```
+
+Equivalent module form:
+
+```powershell
+python -m geometric_v1.pipeline --config pipeline.json
 ```
 
 Output folder contents:
@@ -115,6 +137,12 @@ Create only `perturbed.png`:
 
 ```powershell
 python run_perturbations.py --config pipeline.json
+```
+
+Module form:
+
+```powershell
+python -m geometric_v1.perturbations_cli --config pipeline.json
 ```
 
 Edit one image with InstructPix2Pix:

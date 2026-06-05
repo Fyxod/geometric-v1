@@ -1,4 +1,4 @@
-from geometric_v1.deepface_cli import main
+from .pipeline import main
 
 
 if __name__ == "__main__":
