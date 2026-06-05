@@ -13,7 +13,7 @@
 Python 3.11 is recommended for this project because it is a stable intersection for PyTorch, diffusers, TensorFlow, and DeepFace on Windows.
 
 ```powershell
-cd C:\Users\parth\Desktop\geometric-v1
+cd path\to\geometric-v1
 python -m venv .venv --system-site-packages
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
