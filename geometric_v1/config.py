@@ -7,17 +7,17 @@ from typing import Any
 
 
 DEFAULT_DEEPFACE_MODELS = {
-    "VGG-Face": False,
-    "Facenet": False,
-    "Facenet512": False,
-    "OpenFace": False,
-    "DeepFace": False,
-    "DeepID": False,
-    "ArcFace": False,
-    "Dlib": False,
+    "VGG-Face": True,
+    "Facenet": True,
+    "Facenet512": True,
+    "OpenFace": True,
+    "DeepFace": True,
+    "DeepID": True,
+    "ArcFace": True,
+    "Dlib": True,
     "SFace": True,
-    "GhostFaceNet": False,
-    "Buffalo_L": False,
+    "GhostFaceNet": True,
+    "Buffalo_L": True,
 }
 
 

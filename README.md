@@ -17,10 +17,20 @@ cd path\to\geometric-v1
 python -m venv .venv --system-site-packages
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
+$env:CMAKE_ARGS="-DDLIB_USE_CUDA=OFF"
 python -m pip install -r requirements.txt
+python -m pip install "typing-extensions>=4.14,<5"
 ```
 
-If you want a CUDA-specific PyTorch install, follow the selector at the official PyTorch install page and install that wheel before `requirements.txt`.
+The `CMAKE_ARGS` line keeps `dlib` on a CPU-only build path. Without it, dlib may try to compile against a partial CUDA toolchain and fail on Windows.
+
+This project uses TensorFlow 2.12.1 because the DeepFace model named `DeepFace` needs `LocallyConnected2D`, which is missing from newer TensorFlow releases. PyTorch needs a newer `typing-extensions`, so the final `typing-extensions` command is intentional even though TensorFlow's package metadata asks for an older version. This exact combination was tested locally with CUDA PyTorch and all DeepFace recognition models.
+
+If PyTorch is not already installed in your environment, install it with the selector at the official PyTorch install page after `requirements.txt`, then rerun:
+
+```powershell
+python -m pip install "typing-extensions>=4.14,<5"
+```
 
 ## Project Layout
 
@@ -108,17 +118,17 @@ report.json
     "enforce_detection": false,
     "align": false,
     "models": {
-      "VGG-Face": false,
-      "Facenet": false,
-      "Facenet512": false,
-      "OpenFace": false,
-      "DeepFace": false,
-      "DeepID": false,
-      "ArcFace": false,
-      "Dlib": false,
+      "VGG-Face": true,
+      "Facenet": true,
+      "Facenet512": true,
+      "OpenFace": true,
+      "DeepFace": true,
+      "DeepID": true,
+      "ArcFace": true,
+      "Dlib": true,
       "SFace": true,
-      "GhostFaceNet": false,
-      "Buffalo_L": false
+      "GhostFaceNet": true,
+      "Buffalo_L": true
     }
   }
 }
@@ -126,11 +136,10 @@ report.json
 
 DeepFace model notes:
 
-- `SFace` is enabled by default because it is the most stable Windows baseline in this setup.
-- The other model booleans are present and can be turned on, but their weights or optional dependencies may need manual setup.
-- `Dlib` is disabled by default because Windows installs often need a local C++ toolchain.
-- `Buffalo_L` is disabled by default because it may pull extra InsightFace/ONNX dependencies.
-- Turn either one on in `pipeline.json` when your environment supports it.
+- All DeepFace recognition model booleans are enabled by default because this environment was set up and tested with all of them.
+- The project caches known DeepFace weight files into `~\.deepface\weights` before each model runs. The first all-model run can download several large files.
+- `Dlib` requires a local C++ build toolchain. On this machine it built successfully with `CMAKE_ARGS="-DDLIB_USE_CUDA=OFF"`.
+- `Buffalo_L` requires `insightface`, `onnxruntime`, and its Google Drive ONNX weight. These are included in setup and were tested.
 - Each enabled model records either a comparison result or an error in `report.json`.
 
 ## Independent Commands
@@ -171,6 +180,13 @@ Check DeepFace model loading on generated sample images:
 
 ```powershell
 python run_deepface_model_check.py --output output\deepface_model_check.json
+```
+
+The local all-model check passed for:
+
+```text
+VGG-Face, Facenet, Facenet512, OpenFace, DeepFace, DeepID,
+ArcFace, Dlib, SFace, GhostFaceNet, Buffalo_L
 ```
 
 ## Match Percentage

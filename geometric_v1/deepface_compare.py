@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import time
+import bz2
+import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -8,11 +11,64 @@ from .config import DeepFaceConfig, DEFAULT_DEEPFACE_MODELS
 
 
 ALL_DEEPFACE_MODELS = tuple(DEFAULT_DEEPFACE_MODELS.keys())
+
+
+@dataclass(frozen=True)
+class WeightSpec:
+    target: Path
+    url: str | None = None
+    compression: str | None = None
+    gdrive_id: str | None = None
+
+
+WEIGHTS_DIR = Path.home() / ".deepface" / "weights"
 KNOWN_WEIGHT_URLS = {
-    "SFace": (
-        Path.home() / ".deepface" / "weights" / "face_recognition_sface_2021dec.onnx",
-        "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
-    )
+    "VGG-Face": WeightSpec(
+        WEIGHTS_DIR / "vgg_face_weights.h5",
+        url="https://github.com/serengil/deepface_models/releases/download/v1.0/vgg_face_weights.h5",
+    ),
+    "Facenet": WeightSpec(
+        WEIGHTS_DIR / "facenet_weights.h5",
+        url="https://github.com/serengil/deepface_models/releases/download/v1.0/facenet_weights.h5",
+    ),
+    "Facenet512": WeightSpec(
+        WEIGHTS_DIR / "facenet512_weights.h5",
+        url="https://github.com/serengil/deepface_models/releases/download/v1.0/facenet512_weights.h5",
+    ),
+    "OpenFace": WeightSpec(
+        WEIGHTS_DIR / "openface_weights.h5",
+        url="https://github.com/serengil/deepface_models/releases/download/v1.0/openface_weights.h5",
+    ),
+    "DeepFace": WeightSpec(
+        WEIGHTS_DIR / "VGGFace2_DeepFace_weights_val-0.9034.h5",
+        url="https://github.com/swghosh/DeepFace/releases/download/weights-vggface2-2d-aligned/VGGFace2_DeepFace_weights_val-0.9034.h5.zip",
+        compression="zip",
+    ),
+    "DeepID": WeightSpec(
+        WEIGHTS_DIR / "deepid_keras_weights.h5",
+        url="https://github.com/serengil/deepface_models/releases/download/v1.0/deepid_keras_weights.h5",
+    ),
+    "ArcFace": WeightSpec(
+        WEIGHTS_DIR / "arcface_weights.h5",
+        url="https://github.com/serengil/deepface_models/releases/download/v1.0/arcface_weights.h5",
+    ),
+    "Dlib": WeightSpec(
+        WEIGHTS_DIR / "dlib_face_recognition_resnet_model_v1.dat",
+        url="http://dlib.net/files/dlib_face_recognition_resnet_model_v1.dat.bz2",
+        compression="bz2",
+    ),
+    "SFace": WeightSpec(
+        WEIGHTS_DIR / "face_recognition_sface_2021dec.onnx",
+        url="https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
+    ),
+    "GhostFaceNet": WeightSpec(
+        WEIGHTS_DIR / "ghostfacenet_v1.h5",
+        url="https://github.com/HamadYA/GhostFaceNets/releases/download/v1.2/GhostFaceNet_W1.3_S1_ArcFace.h5",
+    ),
+    "Buffalo_L": WeightSpec(
+        WEIGHTS_DIR / "buffalo_l" / "webface_r50.onnx",
+        gdrive_id="1N0GL-8ehw_bz2eZQWz2b0A5XBdXdxZhg",
+    ),
 }
 
 
@@ -25,19 +81,38 @@ def _match_percent(distance: float | None, threshold: float | None) -> float | N
 def _ensure_known_weight(model_name: str) -> None:
     if model_name not in KNOWN_WEIGHT_URLS:
         return
-    target, url = KNOWN_WEIGHT_URLS[model_name]
-    if target.exists() and target.stat().st_size > 0:
+    spec = KNOWN_WEIGHT_URLS[model_name]
+    if spec.target.exists() and spec.target.stat().st_size > 0:
         return
-    target.parent.mkdir(parents=True, exist_ok=True)
+    spec.target.parent.mkdir(parents=True, exist_ok=True)
+
+    if spec.gdrive_id is not None:
+        import gdown
+
+        gdown.download(id=spec.gdrive_id, output=str(spec.target), quiet=False)
+        return
+
+    if spec.url is None:
+        return
+
+    download_path = spec.target
+    if spec.compression is not None:
+        download_path = spec.target.with_suffix(spec.target.suffix + f".{spec.compression}")
 
     import requests
 
-    with requests.get(url, stream=True, timeout=120) as response:
+    with requests.get(spec.url, stream=True, timeout=120) as response:
         response.raise_for_status()
-        with target.open("wb") as handle:
+        with download_path.open("wb") as handle:
             for chunk in response.iter_content(chunk_size=1024 * 1024):
                 if chunk:
                     handle.write(chunk)
+
+    if spec.compression == "bz2":
+        spec.target.write_bytes(bz2.decompress(download_path.read_bytes()))
+    elif spec.compression == "zip":
+        with zipfile.ZipFile(download_path, "r") as archive:
+            archive.extractall(spec.target.parent)
 
 
 def compare_images(

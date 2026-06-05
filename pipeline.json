@@ -59,17 +59,17 @@
     "enforce_detection": false,
     "align": false,
     "models": {
-      "VGG-Face": false,
-      "Facenet": false,
-      "Facenet512": false,
-      "OpenFace": false,
-      "DeepFace": false,
-      "DeepID": false,
-      "ArcFace": false,
-      "Dlib": false,
+      "VGG-Face": true,
+      "Facenet": true,
+      "Facenet512": true,
+      "OpenFace": true,
+      "DeepFace": true,
+      "DeepID": true,
+      "ArcFace": true,
+      "Dlib": true,
       "SFace": true,
-      "GhostFaceNet": false,
-      "Buffalo_L": false
+      "GhostFaceNet": true,
+      "Buffalo_L": true
     }
   }
 }
