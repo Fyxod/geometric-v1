@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Geometric perturbation plus diffusion and DeepFace comparison pipeline."
 requires-python = ">=3.11,<3.12"
 dependencies = [
-  "numpy>=1.24",
+  "numpy>=1.22,<=1.24.3",
   "pillow>=10.0",
   "scipy>=1.10",
   "opencv-python>=4.8,<4.9",

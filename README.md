@@ -12,6 +12,14 @@
 
 Python 3.11 is recommended for this project because it is a stable intersection for PyTorch, diffusers, TensorFlow, and DeepFace on Windows.
 
+Before installing Python packages on a new Windows laptop, install:
+
+- Python 3.11.x
+- Git
+- CMake
+- Visual Studio 2022 Build Tools with the `Desktop development with C++` workload
+- NVIDIA driver and CUDA-compatible PyTorch only if you want GPU diffusion
+
 ```powershell
 cd path\to\geometric-v1
 python -m venv .venv --system-site-packages
@@ -24,13 +32,23 @@ python -m pip install "typing-extensions>=4.14,<5"
 
 The `CMAKE_ARGS` line keeps `dlib` on a CPU-only build path. Without it, dlib may try to compile against a partial CUDA toolchain and fail on Windows.
 
-This project uses TensorFlow 2.12.1 because the DeepFace model named `DeepFace` needs `LocallyConnected2D`, which is missing from newer TensorFlow releases. PyTorch needs a newer `typing-extensions`, so the final `typing-extensions` command is intentional even though TensorFlow's package metadata asks for an older version. This exact combination was tested locally with CUDA PyTorch and all DeepFace recognition models.
+This project pins `numpy>=1.22,<=1.24.3` because TensorFlow 2.12.1 declares that exact compatible range. TensorFlow 2.12.1 is intentional because the DeepFace model named `DeepFace` needs `LocallyConnected2D`, which is missing from newer TensorFlow releases. PyTorch needs a newer `typing-extensions`, so the final `typing-extensions` command is intentional even though TensorFlow's package metadata asks for an older version. This exact combination was tested locally with CUDA PyTorch and all DeepFace recognition models.
 
-If PyTorch is not already installed in your environment, install it with the selector at the official PyTorch install page after `requirements.txt`, then rerun:
+PyTorch is not listed in `requirements.txt` because the right wheel depends on the laptop's CPU/GPU/CUDA setup. If PyTorch is not already installed in your environment, install it with the selector at the official PyTorch install page after `requirements.txt`, then rerun:
 
 ```powershell
 python -m pip install "typing-extensions>=4.14,<5"
 ```
+
+For a CPU-only laptop, choose the CPU PyTorch command from the official selector, set `"cpu": true` in `pipeline.json`, and expect diffusion to be slow. For an NVIDIA GPU laptop, choose the CUDA PyTorch command that matches your driver, keep `"cpu": false`, and check `diffusion.resolved_device` in `report.json`.
+
+Verify the install:
+
+```powershell
+python -c "import numpy, tensorflow as tf, torch; print('numpy', numpy.__version__); print('tensorflow', tf.__version__); print('torch', torch.__version__, 'cuda', torch.cuda.is_available())"
+```
+
+Expected NumPy on this stack is `1.24.3` or lower within the pinned range. If `dlib` fails during setup, install or repair Visual Studio Build Tools and CMake, reopen PowerShell, set `CMAKE_ARGS` again, and rerun `python -m pip install -r requirements.txt`.
 
 ## Project Layout
 
