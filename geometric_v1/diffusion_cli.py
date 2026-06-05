@@ -13,6 +13,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--cpu", action="store_true", help="Force diffusion to run on CPU")
+    parser.add_argument("--device", default="auto", help="Torch device to use when --cpu is not set")
     parser.add_argument("--gpu-index", type=int, default=0)
     parser.add_argument("--steps", type=int, default=10)
     parser.add_argument("--guidance-scale", type=float, default=7.5)
@@ -20,6 +22,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = DiffusionConfig(
+        cpu=args.cpu,
+        device=args.device,
         gpu_index=args.gpu_index,
         num_inference_steps=args.steps,
         guidance_scale=args.guidance_scale,

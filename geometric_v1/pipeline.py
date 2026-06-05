@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import Any
 
 from .config import load_pipeline_config
 from .deepface_compare import compare_images
-from .diffusion import edit_image
+from .diffusion import edit_image, resolve_device
 from .image_io import load_image, load_pil_image, save_image, save_pil
 from .perturbations import apply_perturbation_pipeline
 
@@ -17,6 +18,8 @@ from .perturbations import apply_perturbation_pipeline
 def run_pipeline(config_path: Path) -> dict[str, Any]:
     started = time.perf_counter()
     config = load_pipeline_config(config_path)
+    if config.diffusion.cpu:
+        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
     original_path = config.output_dir / "original.png"
@@ -54,7 +57,7 @@ def run_pipeline(config_path: Path) -> dict[str, Any]:
             "perturbed_diffused": str(perturbed_diffused_path),
             "report": str(report_path),
         },
-        "diffusion": asdict(config.diffusion),
+        "diffusion": {**asdict(config.diffusion), "resolved_device": resolve_device(config.diffusion)},
         "perturbations": [asdict(step) for step in config.perturbations],
         "deepface": deepface_report,
         "elapsed_seconds": time.perf_counter() - started,

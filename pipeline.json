@@ -45,6 +45,7 @@
   ],
   "diffusion": {
     "model_id": "timbrooks/instruct-pix2pix",
+    "cpu": false,
     "device": "auto",
     "gpu_index": 0,
     "num_inference_steps": 10,

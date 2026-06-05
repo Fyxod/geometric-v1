@@ -8,7 +8,9 @@ from PIL import Image
 from .config import DiffusionConfig
 
 
-def _choose_device(config: DiffusionConfig) -> str:
+def resolve_device(config: DiffusionConfig) -> str:
+    if config.cpu:
+        return "cpu"
     if config.device != "auto":
         return config.device
     if torch.cuda.is_available():
@@ -44,7 +46,7 @@ def _load_pipe(model_id: str, device: str):
 
 
 def edit_image(image: Image.Image, prompt: str, config: DiffusionConfig) -> Image.Image:
-    device = _choose_device(config)
+    device = resolve_device(config)
     pipe = _load_pipe(config.model_id, device)
     prepared = _resize_for_diffusion(image, config.max_size)
     generator = torch.Generator(device=device).manual_seed(config.seed)

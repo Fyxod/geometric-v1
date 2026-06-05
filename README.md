@@ -56,6 +56,7 @@ Edit `pipeline.json`, especially:
 - `output_dir`
 - `prompt`
 - perturbation strengths
+- `diffusion.cpu` if you want to force a CPU run
 - DeepFace model booleans
 
 Then run:
@@ -104,6 +105,7 @@ report.json
   ],
   "diffusion": {
     "model_id": "timbrooks/instruct-pix2pix",
+    "cpu": false,
     "device": "auto",
     "gpu_index": 0,
     "num_inference_steps": 10,
@@ -133,6 +135,12 @@ report.json
   }
 }
 ```
+
+Diffusion device notes:
+
+- Set `"cpu": true` to force InstructPix2Pix onto CPU even when CUDA is available.
+- Keep `"cpu": false` with `"device": "auto"` to use CUDA when PyTorch can see it, otherwise CPU.
+- The pipeline writes `diffusion.resolved_device` into `report.json` so you can confirm the actual device used.
 
 DeepFace model notes:
 
@@ -164,6 +172,16 @@ python run_diffusion.py `
   --prompt "make the person look like a professional studio portrait" `
   --output output\single_diffused.png `
   --gpu-index 0
+```
+
+Force the standalone diffusion command onto CPU:
+
+```powershell
+python run_diffusion.py `
+  --image samples\original.png `
+  --prompt "make the person look like a professional studio portrait" `
+  --output output\single_diffused_cpu.png `
+  --cpu
 ```
 
 Compare two images with DeepFace:

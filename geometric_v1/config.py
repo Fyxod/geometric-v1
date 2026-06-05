@@ -39,6 +39,7 @@ class PerturbationStep:
 @dataclass(frozen=True)
 class DiffusionConfig:
     model_id: str = "timbrooks/instruct-pix2pix"
+    cpu: bool = False
     device: str = "auto"
     gpu_index: int = 0
     num_inference_steps: int = 10
@@ -96,6 +97,7 @@ def _perturbation_from_dict(values: dict[str, Any], base_seed: int, index: int) 
 def _diffusion_from_dict(values: dict[str, Any], base_seed: int) -> DiffusionConfig:
     return DiffusionConfig(
         model_id=str(values.get("model_id", "timbrooks/instruct-pix2pix")),
+        cpu=bool(values.get("cpu", False)),
         device=str(values.get("device", "auto")),
         gpu_index=int(values.get("gpu_index", 0)),
         num_inference_steps=int(values.get("num_inference_steps", 10)),
