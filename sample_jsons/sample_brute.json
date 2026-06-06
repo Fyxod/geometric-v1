@@ -1,0 +1,49 @@
+{
+  "_notes": {
+    "purpose": "Example brute.json. brute.json controls random perturbation search settings for one pipeline config.",
+    "pipeline_config": "Path to pipeline.json. Batch mode may override this per image/prompt combo.",
+    "output_dir": "Folder where successful, unsuccessful, failures, and brute_report.json are written.",
+    "trials": "Number of random attempts for this one image/prompt combo.",
+    "success_threshold": "A completed run is successful when average DeepFace match_percent is <= this value.",
+    "seed": "Seed for random parameter sampling. Also used as fixed attempt seed when randomize_attempt_seed is false.",
+    "randomize_attempt_seed": "true picks random attempt seeds from attempt_seed_range. Batch mode makes these unique across the whole batch.",
+    "attempt_seed_range": "Inclusive min/max range used for random attempt seeds.",
+    "save_unsuccessful": "For actual failures only: false trims generated image files and keeps report.json plus sampled_config.json. Threshold failures are always saved under unsuccessful.",
+    "ranges": "Per-perturbation parameter ranges. Only enabled perturbations from pipeline.json are sampled."
+  },
+  "pipeline_config": "pipeline.json",
+  "output_dir": "output/brute_force",
+  "trials": 2000,
+  "success_threshold": 50.0,
+  "seed": 42,
+  "randomize_attempt_seed": true,
+  "attempt_seed_range": [1, 2147483647],
+  "save_unsuccessful": true,
+  "ranges": {
+    "homography": {
+      "strength": [0.01, 0.08]
+    },
+    "thin-plate-spline": {
+      "strength": [0.001, 0.003],
+      "grid": [5, 9]
+    },
+    "delaunay": {
+      "strength": [0, 0.009],
+      "grid": [6, 12]
+    },
+    "fft-phase": {
+      "strength": [0, 10000],
+      "coefficients": [4, 16]
+    },
+    "elastic": {
+      "strength": [0, 0.01],
+      "sigma": [6.0, 18.0]
+    },
+    "rolling-shutter": {
+      "strength": [0, 0.009],
+      "rolling_frequency": [0.5, 3.0],
+      "rolling_shear": [0.0, 0.06],
+      "rolling_acceleration": [-0.03, 0.03]
+    }
+  }
+}

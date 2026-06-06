@@ -62,8 +62,11 @@ run_diffusion.py
 run_deepface_compare.py
 run_deepface_model_check.py
 run_brute_force.py
+run_batch_brute_force.py
 pipeline.json
 brute.json
+batch_brute.json
+sample_jsons/
 ```
 
 There is no `src/` layout.
@@ -159,6 +162,65 @@ Seed behavior:
 - Enabled perturbation steps receive seeds starting at the attempt seed, then incrementing by one in pipeline order.
 
 Each run's `sampled_config.json` is a runnable copy of `pipeline.json` with sampled perturbation values inserted. It also resolves the input and output paths to absolute paths so it can run correctly from inside the run folder.
+
+## Batch Brute Force
+
+`batch_brute.json` runs brute force for every image and prompt combination. It does not duplicate brute-force logic; it writes combo-local configs and calls the normal brute-force runner.
+
+Run:
+
+```powershell
+python run_batch_brute_force.py --config batch_brute.json
+```
+
+Module form:
+
+```powershell
+python -m geometric_v1.batch_brute_force --config batch_brute.json
+```
+
+`batch_brute.json` controls:
+
+- `brute_config`: path to `brute.json`
+- `pipeline_config`: optional override; omitted means use the one inside `brute.json`
+- `images_dir`
+- `image_extensions`, defaulting to `.png`, `.jpg`, `.jpeg`, `.webp`
+- `recursive`
+- `prompts`
+- `output_dir`
+- `skip_existing`
+- `parallel_combinations`
+
+`pipeline.json` remains the source of truth for diffusion settings, CPU/GPU flag, DeepFace enabled models, and enabled perturbation methods. `brute.json` remains the source of truth for trials, success threshold, seed behavior, `attempt_seed_range`, `save_unsuccessful`, and perturbation parameter ranges. Batch mode overrides only the input image, prompt, and output folder for each image/prompt combo.
+
+Output layout:
+
+```text
+output/batch_brute/
+  batch_report.json
+  image_000001_<image_stem>/
+    prompt_000000_<short_hash>/
+      successful/
+      unsuccessful/
+      failures/
+      brute_report.json
+```
+
+`batch_report.json` summarizes total images, total prompts, total planned brute attempts, per-combo status, prompt text, image path, success/unsuccess/failure counts, each combo's `brute_report.json`, and elapsed time.
+
+If `skip_existing` is `true`, a combo is skipped when its `brute_report.json` already exists. If `parallel_combinations` is greater than `1`, multiple image/prompt combos run at the same time with a bounded process pool. Be careful with values above `1`: each combo can run diffusion on the GPU, so CUDA memory pressure can rise quickly.
+
+When `randomize_attempt_seed` is `true` in `brute.json`, batch mode pre-generates unique attempt seeds across the whole batch. For example, `2 images x 2 prompts x 100 trials` produces `400` distinct attempt seeds from `attempt_seed_range`.
+
+## Sample Configs
+
+Explanatory examples live in `sample_jsons/`:
+
+```text
+sample_jsons/sample_pipeline.json
+sample_jsons/sample_brute.json
+sample_jsons/sample_batch_brute.json
+```
 
 ## Config Shape
 

@@ -1,0 +1,86 @@
+{
+  "_notes": {
+    "purpose": "Example pipeline.json. pipeline.json is the source of truth for the input image, prompt, diffusion settings, CPU/GPU flag, DeepFace enabled models, and which perturbation methods are enabled.",
+    "input": "Image path. Relative paths are resolved from the folder containing this JSON.",
+    "output_dir": "Folder where one normal pipeline run writes original.png, perturbed.png, diffused images, and report.json.",
+    "prompt": "The InstructPix2Pix prompt applied to both original and perturbed images.",
+    "seed": "Base seed used by perturbations and diffusion unless overridden.",
+    "diffusion.cpu": "true forces CPU. false with device auto uses CUDA when PyTorch can see it.",
+    "deepface.workers": "auto or integer. Only used by the full pipeline when diffusion resolves to CUDA; CPU runs stay sequential."
+  },
+  "input": "samples/image.png",
+  "output_dir": "output/run_002",
+  "prompt": "add sunglasses",
+  "seed": 15,
+  "perturbations": [
+    {
+      "method": "homography",
+      "enabled": false,
+      "strength": 0.04
+    },
+    {
+      "method": "thin-plate-spline",
+      "enabled": true,
+      "strength": 0.002,
+      "grid": 7
+    },
+    {
+      "method": "delaunay",
+      "enabled": true,
+      "strength": 0.008,
+      "grid": 8
+    },
+    {
+      "method": "fft-phase",
+      "enabled": true,
+      "strength": 50000,
+      "coefficients": 6
+    },
+    {
+      "method": "elastic",
+      "enabled": true,
+      "strength": 0.01,
+      "sigma": 12.0
+    },
+    {
+      "method": "rolling-shutter",
+      "enabled": true,
+      "strength": 0.008,
+      "rolling_frequency": 1.5,
+      "rolling_phase": 0.0,
+      "rolling_shear": 0.02,
+      "rolling_acceleration": 0.0
+    }
+  ],
+  "diffusion": {
+    "model_id": "timbrooks/instruct-pix2pix",
+    "cpu": false,
+    "device": "auto",
+    "gpu_index": 0,
+    "num_inference_steps": 10,
+    "guidance_scale": 7.5,
+    "image_guidance_scale": 1.0,
+    "max_size": 512
+  },
+  "deepface": {
+    "enabled": true,
+    "detector_backend": "skip",
+    "distance_metric": "cosine",
+    "enforce_detection": false,
+    "align": false,
+    "workers": "auto",
+    "models": {
+      "VGG-Face": true,
+      "Facenet": true,
+      "Facenet512": true,
+      "OpenFace": true,
+      "DeepFace": true,
+      "DeepID": true,
+      "ArcFace": true,
+      "Dlib": true,
+      "SFace": true,
+      "GhostFaceNet": true,
+      "Buffalo_L": true
+    }
+  }
+}

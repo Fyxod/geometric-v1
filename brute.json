@@ -1,7 +1,7 @@
 {
   "pipeline_config": "pipeline.json",
   "output_dir": "output/brute_force",
-  "trials": 100,
+  "trials": 2000,
   "success_threshold": 50.0,
   "seed": 42,
   "randomize_attempt_seed": true,

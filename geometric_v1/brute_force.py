@@ -216,11 +216,17 @@ def _error_report(
     }
 
 
-def run_brute_force(config_path: Path) -> dict[str, Any]:
+def run_brute_force(
+    config_path: Path,
+    attempt_seeds: list[int] | None = None,
+    rng_seed: int | None = None,
+) -> dict[str, Any]:
     started = time.perf_counter()
     config = load_brute_config(config_path)
+    if attempt_seeds is not None and len(attempt_seeds) != config.trials:
+        raise ValueError("attempt_seeds length must match brute trials")
     pipeline_data = _read_json(config.pipeline_config)
-    rng = random.Random(config.seed)
+    rng = random.Random(config.seed if rng_seed is None else rng_seed)
 
     successful_dir = config.output_dir / "successful"
     unsuccessful_dir = config.output_dir / "unsuccessful"
@@ -248,7 +254,7 @@ def run_brute_force(config_path: Path) -> dict[str, Any]:
 
     for attempt in range(config.trials):
         run_name = f"run_{attempt:06d}"
-        attempt_seed = _next_attempt_seed(config, rng)
+        attempt_seed = attempt_seeds[attempt] if attempt_seeds is not None else _next_attempt_seed(config, rng)
         staging_dir = Path(tempfile.mkdtemp(prefix=f"{run_name}_", dir=working_dir))
         sampled_config_path = staging_dir / "sampled_config.json"
         sampled_config = _make_sampled_pipeline(

@@ -1,0 +1,26 @@
+{
+  "_notes": {
+    "purpose": "Example batch_brute.json. Batch mode runs brute force for every image x prompt combination.",
+    "brute_config": "Path to brute.json. Controls trials, threshold, seed behavior, save_unsuccessful, and perturbation ranges.",
+    "pipeline_config": "Optional override. If omitted, batch mode uses pipeline_config from brute.json.",
+    "images_dir": "Folder containing input images.",
+    "image_extensions": "Allowed file extensions. Defaults to png/jpg/jpeg/webp when omitted.",
+    "recursive": "false scans only images directly in images_dir. true includes subfolders.",
+    "prompts": "Each prompt is paired with each image.",
+    "output_dir": "Batch output folder. Contains batch_report.json and one folder per image/prompt combo.",
+    "skip_existing": "true skips a combo if its brute_report.json already exists.",
+    "parallel_combinations": "Number of image/prompt combos to run at the same time. Values above 1 may cause CUDA memory issues because each combo may use diffusion on the GPU."
+  },
+  "brute_config": "brute.json",
+  "pipeline_config": "pipeline.json",
+  "images_dir": "samples/batch",
+  "image_extensions": [".png", ".jpg", ".jpeg", ".webp"],
+  "recursive": false,
+  "prompts": [
+    "add sunglasses",
+    "make the person look like a studio portrait"
+  ],
+  "output_dir": "output/batch_brute",
+  "skip_existing": true,
+  "parallel_combinations": 1
+}

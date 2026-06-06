@@ -1,0 +1,14 @@
+{
+  "brute_config": "brute.json",
+  "pipeline_config": "pipeline.json",
+  "images_dir": "samples/batch",
+  "image_extensions": [".png", ".jpg", ".jpeg", ".webp"],
+  "recursive": false,
+  "prompts": [
+    "add sunglasses",
+    "make the person look like a studio portrait"
+  ],
+  "output_dir": "output/batch_brute",
+  "skip_existing": true,
+  "parallel_combinations": 1
+}
