@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import shutil
@@ -16,6 +17,11 @@ from .pipeline import run_pipeline
 
 
 INTEGER_FIELDS = {"grid", "coefficients"}
+RUN_BUCKETS = {
+    "successful": "successful",
+    "unsuccessful": "unsuccessful",
+    "failure": "failures",
+}
 
 
 @dataclass(frozen=True)
@@ -28,6 +34,7 @@ class BruteConfig:
     seed: int
     randomize_attempt_seed: bool
     attempt_seed_range: tuple[int, int]
+    resume: bool
     save_unsuccessful: bool
     ranges: dict[str, dict[str, list[float | int]]]
 
@@ -70,6 +77,7 @@ def load_brute_config(path: Path) -> BruteConfig:
         seed=int(data.get("seed", 42)),
         randomize_attempt_seed=bool(data.get("randomize_attempt_seed", True)),
         attempt_seed_range=(min_seed, max_seed),
+        resume=bool(data.get("resume", False)),
         save_unsuccessful=bool(data.get("save_unsuccessful", True)),
         ranges=ranges,
     )
@@ -98,6 +106,52 @@ def _next_attempt_seed(config: BruteConfig, rng: random.Random) -> int:
     if not config.randomize_attempt_seed:
         return config.seed
     return rng.randint(config.attempt_seed_range[0], config.attempt_seed_range[1])
+
+
+def _attempt_rng(base_seed: int, attempt: int) -> random.Random:
+    digest = hashlib.sha256(f"geometric-v1:{base_seed}:{attempt}".encode("utf-8")).digest()
+    return random.Random(int.from_bytes(digest[:8], "big"))
+
+
+def _planned_attempt_seeds(
+    config: BruteConfig,
+    explicit_attempt_seeds: list[int] | None,
+    stored_attempt_seeds: dict[int, int],
+) -> list[int]:
+    if explicit_attempt_seeds is not None:
+        seeds = list(explicit_attempt_seeds)
+    else:
+        rng = random.Random(config.seed)
+        seeds = [_next_attempt_seed(config, rng) for _ in range(config.trials)]
+
+    for attempt, stored_seed in stored_attempt_seeds.items():
+        if 0 <= attempt < len(seeds):
+            seeds[attempt] = stored_seed
+    return seeds
+
+
+def _load_existing_brute_report(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        data = _read_json(path)
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _stored_attempt_seeds(report: dict[str, Any] | None) -> dict[int, int]:
+    if not report:
+        return {}
+    seeds: dict[int, int] = {}
+    for item in report.get("attempts", []):
+        try:
+            attempt = int(item["attempt"])
+            attempt_seed = int(item["attempt_seed"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        seeds[attempt] = attempt_seed
+    return seeds
 
 
 def _make_sampled_pipeline(
@@ -176,6 +230,85 @@ def _update_final_paths(report: dict[str, Any], sampled_config: dict[str, Any], 
                 deepface.pop(key, None)
 
 
+def _run_name(attempt: int) -> str:
+    return f"run_{attempt:06d}"
+
+
+def _run_folder(config: BruteConfig, status: str, attempt: int) -> Path:
+    return config.output_dir / RUN_BUCKETS[status] / _run_name(attempt)
+
+
+def _completed_attempt_record(folder: Path, attempt: int) -> dict[str, Any] | None:
+    report_path = folder / "report.json"
+    sampled_path = folder / "sampled_config.json"
+    if not report_path.exists() or not sampled_path.exists():
+        return None
+    try:
+        report = _read_json(report_path)
+    except Exception:
+        return None
+    brute_force = report.get("brute_force")
+    if not isinstance(brute_force, dict) or not brute_force.get("status"):
+        return None
+
+    status = str(brute_force.get("status"))
+    return {
+        "attempt": int(brute_force.get("attempt", attempt)),
+        "run_name": folder.name,
+        "attempt_seed": brute_force.get("attempt_seed"),
+        "status": status,
+        "success": bool(brute_force.get("success", status == "successful")),
+        "average_match_percent": brute_force.get("average_match_percent"),
+        "counted_models": int(brute_force.get("counted_models", 0) or 0),
+        "errored_models": brute_force.get("errored_models", []),
+        "pipeline_error": brute_force.get("pipeline_error"),
+        "saved": True,
+        "folder": str(folder),
+        "action": "skipped",
+    }
+
+
+def _find_attempt_outputs(config: BruteConfig, attempt: int) -> tuple[list[dict[str, Any]], list[Path]]:
+    completed: list[dict[str, Any]] = []
+    incomplete: list[Path] = []
+    for status in RUN_BUCKETS:
+        folder = _run_folder(config, status, attempt)
+        if not folder.exists():
+            continue
+        record = _completed_attempt_record(folder, attempt)
+        if record is None:
+            incomplete.append(folder)
+        else:
+            completed.append(record)
+    return completed, incomplete
+
+
+def _archive_incomplete_run(config: BruteConfig, path: Path, attempt: int) -> str:
+    failures_dir = config.output_dir / RUN_BUCKETS["failure"]
+    failures_dir.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    base_name = f"incomplete_{path.parent.name}_{_run_name(attempt)}_{stamp}"
+    destination = failures_dir / base_name
+    counter = 1
+    while destination.exists():
+        destination = failures_dir / f"{base_name}_{counter}"
+        counter += 1
+    shutil.move(str(path), str(destination))
+    return str(destination)
+
+
+def _clean_working_attempts(working_dir: Path, attempt: int) -> list[str]:
+    if not working_dir.exists():
+        return []
+    removed: list[str] = []
+    prefix = f"{_run_name(attempt)}_"
+    for child in working_dir.iterdir():
+        if child.name.startswith(prefix):
+            shutil.rmtree(child, ignore_errors=True)
+            removed.append(str(child))
+    return removed
+
+
 def _preflight_output_dirs(config: BruteConfig) -> None:
     if config.trials < 1:
         raise ValueError("trials must be at least 1")
@@ -216,6 +349,19 @@ def _error_report(
     }
 
 
+def _summarize_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "successful": sum(1 for item in attempts if item.get("status") == "successful"),
+        "unsuccessful": sum(1 for item in attempts if item.get("status") == "unsuccessful"),
+        "failures": sum(1 for item in attempts if item.get("status") == "failure"),
+        "saved": sum(1 for item in attempts if item.get("saved")),
+        "completed_runs": sum(1 for item in attempts if item.get("status") in RUN_BUCKETS),
+        "skipped_runs": sum(1 for item in attempts if item.get("action") == "skipped"),
+        "resumed_runs": sum(1 for item in attempts if item.get("action") == "resumed"),
+        "executed_runs": sum(1 for item in attempts if item.get("action") in {"executed", "resumed"}),
+    }
+
+
 def run_brute_force(
     config_path: Path,
     attempt_seeds: list[int] | None = None,
@@ -226,7 +372,7 @@ def run_brute_force(
     if attempt_seeds is not None and len(attempt_seeds) != config.trials:
         raise ValueError("attempt_seeds length must match brute trials")
     pipeline_data = _read_json(config.pipeline_config)
-    rng = random.Random(config.seed if rng_seed is None else rng_seed)
+    parameter_seed = config.seed if rng_seed is None else rng_seed
 
     successful_dir = config.output_dir / "successful"
     unsuccessful_dir = config.output_dir / "unsuccessful"
@@ -236,9 +382,18 @@ def run_brute_force(
     unsuccessful_dir.mkdir(parents=True, exist_ok=True)
     failures_dir.mkdir(parents=True, exist_ok=True)
     working_dir.mkdir(parents=True, exist_ok=True)
-    _preflight_output_dirs(config)
+    if not config.resume:
+        _preflight_output_dirs(config)
 
     brute_report_path = config.output_dir / "brute_report.json"
+    existing_brute_report = _load_existing_brute_report(brute_report_path)
+    stored_seeds = _stored_attempt_seeds(existing_brute_report)
+    planned_attempt_seeds = _planned_attempt_seeds(config, attempt_seeds, stored_seeds)
+    had_existing_state = existing_brute_report is not None or any(
+        _run_folder(config, status, attempt).exists()
+        for attempt in range(config.trials)
+        for status in RUN_BUCKETS
+    )
     brute_report: dict[str, Any] = {
         "config_path": str(config.config_path),
         "pipeline_config": str(config.pipeline_config),
@@ -248,13 +403,46 @@ def run_brute_force(
         "seed": config.seed,
         "randomize_attempt_seed": config.randomize_attempt_seed,
         "attempt_seed_range": list(config.attempt_seed_range),
+        "resume": config.resume,
         "save_unsuccessful": config.save_unsuccessful,
         "attempts": [],
     }
 
     for attempt in range(config.trials):
-        run_name = f"run_{attempt:06d}"
-        attempt_seed = attempt_seeds[attempt] if attempt_seeds is not None else _next_attempt_seed(config, rng)
+        run_name = _run_name(attempt)
+        attempt_seed = planned_attempt_seeds[attempt]
+        completed_records, incomplete_paths = _find_attempt_outputs(config, attempt)
+        archived_incomplete: list[str] = []
+
+        if len(completed_records) > 1:
+            folders = ", ".join(record["folder"] for record in completed_records)
+            raise FileExistsError(f"multiple completed folders found for {run_name}: {folders}")
+
+        if completed_records:
+            if config.resume:
+                for path in incomplete_paths:
+                    archived_incomplete.append(_archive_incomplete_run(config, path, attempt))
+                archived_incomplete.extend(_clean_working_attempts(working_dir, attempt))
+                record = completed_records[0]
+                if record.get("attempt_seed") is None:
+                    record["attempt_seed"] = attempt_seed
+                record["archived_incomplete"] = archived_incomplete
+                brute_report["attempts"].append(record)
+                brute_report["summary"] = _summarize_attempts(brute_report["attempts"])
+                _write_json(brute_report_path, brute_report)
+                print(f"{run_name}: skipped completed {record['status']}")
+                continue
+
+        if incomplete_paths and not config.resume:
+            folders = ", ".join(str(path) for path in incomplete_paths)
+            raise FileExistsError(f"refusing to overwrite incomplete run folder(s): {folders}")
+
+        if config.resume:
+            for path in incomplete_paths:
+                archived_incomplete.append(_archive_incomplete_run(config, path, attempt))
+            archived_incomplete.extend(_clean_working_attempts(working_dir, attempt))
+
+        action = "resumed" if config.resume and had_existing_state else "executed"
         staging_dir = Path(tempfile.mkdtemp(prefix=f"{run_name}_", dir=working_dir))
         sampled_config_path = staging_dir / "sampled_config.json"
         sampled_config = _make_sampled_pipeline(
@@ -262,7 +450,7 @@ def run_brute_force(
             pipeline_path=config.pipeline_config,
             output_dir=staging_dir,
             attempt_seed=attempt_seed,
-            rng=rng,
+            rng=_attempt_rng(parameter_seed, attempt),
             ranges=config.ranges,
         )
         _write_json(sampled_config_path, sampled_config)
@@ -316,20 +504,18 @@ def run_brute_force(
             "pipeline_error": pipeline_error,
             "saved": True,
             "folder": str(final_dir),
+            "action": action,
+            "archived_incomplete": archived_incomplete,
         }
         brute_report["attempts"].append(attempt_record)
+        brute_report["summary"] = _summarize_attempts(brute_report["attempts"])
         _write_json(brute_report_path, brute_report)
 
         average_text = "none" if average is None else f"{average:.4f}"
-        print(f"{run_name}: average={average_text} status={status}")
+        print(f"{run_name}: average={average_text} status={status} action={action}")
 
     brute_report["elapsed_seconds"] = time.perf_counter() - started
-    brute_report["summary"] = {
-        "successful": sum(1 for item in brute_report["attempts"] if item["status"] == "successful"),
-        "unsuccessful": sum(1 for item in brute_report["attempts"] if item["status"] == "unsuccessful"),
-        "failures": sum(1 for item in brute_report["attempts"] if item["status"] == "failure"),
-        "saved": sum(1 for item in brute_report["attempts"] if item["saved"]),
-    }
+    brute_report["summary"] = _summarize_attempts(brute_report["attempts"])
     _write_json(brute_report_path, brute_report)
     with suppress(OSError):
         working_dir.rmdir()

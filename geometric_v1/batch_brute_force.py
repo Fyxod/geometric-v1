@@ -5,6 +5,7 @@ import hashlib
 import json
 import random
 import re
+import shutil
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from copy import deepcopy
@@ -29,6 +30,7 @@ class BatchBruteConfig:
     prompts: list[str]
     output_dir: Path
     skip_existing: bool
+    overwrite_existing: bool
     parallel_combinations: int
 
 
@@ -42,6 +44,7 @@ class ComboPlan:
     brute_config_path: Path
     attempt_seeds: list[int] | None
     rng_seed: int | None
+    result_status: str
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -94,6 +97,7 @@ def load_batch_brute_config(path: Path) -> BatchBruteConfig:
         prompts=prompts,
         output_dir=_resolve(base_dir, str(data.get("output_dir", "output/batch_brute"))).resolve(),
         skip_existing=bool(data.get("skip_existing", True)),
+        overwrite_existing=bool(data.get("overwrite_existing", False)),
         parallel_combinations=max(1, int(data.get("parallel_combinations", 1))),
     )
 
@@ -141,6 +145,7 @@ def _write_combo_configs(
     prompt: str,
     brute_data: dict[str, Any],
     pipeline_data: dict[str, Any],
+    resume: bool,
 ) -> Path:
     combo_dir.mkdir(parents=True, exist_ok=True)
     combo_pipeline = deepcopy(pipeline_data)
@@ -154,6 +159,7 @@ def _write_combo_configs(
     combo_brute = deepcopy(brute_data)
     combo_brute["pipeline_config"] = str(combo_pipeline_path)
     combo_brute["output_dir"] = str(combo_dir)
+    combo_brute["resume"] = resume
     combo_brute_path = combo_dir / "combo_brute.json"
     _write_json(combo_brute_path, combo_brute)
     return combo_brute_path
@@ -166,7 +172,7 @@ def _run_combo(plan: ComboPlan) -> dict[str, Any]:
     return {
         "image_index": plan.image_index,
         "prompt_index": plan.prompt_index,
-        "status": "completed",
+        "status": plan.result_status,
         "image_path": str(plan.image_path),
         "prompt": plan.prompt,
         "output_dir": str(plan.combo_dir),
@@ -225,11 +231,29 @@ def _summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "completed": sum(1 for record in records if record["status"] == "completed"),
         "skipped": sum(1 for record in records if record["status"] == "skipped"),
+        "resumed": sum(1 for record in records if record["status"] == "resumed"),
         "failed": sum(1 for record in records if record["status"] == "failed"),
         "successful": sum(int(record.get("successful", 0)) for record in records),
         "unsuccessful": sum(int(record.get("unsuccessful", 0)) for record in records),
         "failures": sum(int(record.get("failures", 0)) for record in records),
     }
+
+
+def _combo_complete(combo_dir: Path, trials: int) -> bool:
+    brute_report_path = combo_dir / "brute_report.json"
+    if not brute_report_path.exists():
+        return False
+    try:
+        report = _read_json(brute_report_path)
+    except Exception:
+        return False
+    attempts = report.get("attempts")
+    return (
+        isinstance(report.get("summary"), dict)
+        and isinstance(attempts, list)
+        and len(attempts) == trials
+        and all(isinstance(item, dict) and item.get("status") for item in attempts)
+    )
 
 
 def run_batch_brute_force(config_path: Path) -> dict[str, Any]:
@@ -253,6 +277,7 @@ def run_batch_brute_force(config_path: Path) -> dict[str, Any]:
         "recursive": config.recursive,
         "output_dir": str(config.output_dir),
         "skip_existing": config.skip_existing,
+        "overwrite_existing": config.overwrite_existing,
         "parallel_combinations": config.parallel_combinations,
         "total_images": len(images),
         "total_prompts": len(config.prompts),
@@ -286,16 +311,51 @@ def run_batch_brute_force(config_path: Path) -> dict[str, Any]:
                     brute_config_path=combo_dir / "combo_brute.json",
                     attempt_seeds=attempt_seeds,
                     rng_seed=rng_seed,
+                    result_status="completed",
                 )
             )
 
     pending: list[ComboPlan] = []
     for plan in plans:
-        if config.skip_existing and (plan.combo_dir / "brute_report.json").exists():
+        combo_is_complete = _combo_complete(plan.combo_dir, brute_config.trials)
+        combo_exists = plan.combo_dir.exists()
+        if config.skip_existing and combo_is_complete:
             batch_report["results"].append(_skipped_record(plan))
+        elif combo_is_complete and not config.skip_existing and not config.overwrite_existing:
+            batch_report["results"].append(
+                _failure_record(
+                    plan,
+                    FileExistsError(
+                        "combo is complete; set overwrite_existing true to rerun without preserving completed folders"
+                    ),
+                )
+            )
         else:
-            _write_combo_configs(plan.combo_dir, plan.image_path, plan.prompt, brute_data, pipeline_data)
-            pending.append(plan)
+            result_status = "resumed" if combo_exists and not combo_is_complete else "completed"
+            if combo_is_complete and config.overwrite_existing:
+                shutil.rmtree(plan.combo_dir)
+                result_status = "completed"
+            _write_combo_configs(
+                plan.combo_dir,
+                plan.image_path,
+                plan.prompt,
+                brute_data,
+                pipeline_data,
+                resume=True,
+            )
+            pending.append(
+                ComboPlan(
+                    image_index=plan.image_index,
+                    prompt_index=plan.prompt_index,
+                    image_path=plan.image_path,
+                    prompt=plan.prompt,
+                    combo_dir=plan.combo_dir,
+                    brute_config_path=plan.brute_config_path,
+                    attempt_seeds=plan.attempt_seeds,
+                    rng_seed=plan.rng_seed,
+                    result_status=result_status,
+                )
+            )
 
     if config.parallel_combinations == 1:
         for plan in pending:

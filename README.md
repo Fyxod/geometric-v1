@@ -128,6 +128,7 @@ python -m geometric_v1.brute_force --config brute.json
 - brute-force output directory
 - success threshold, such as `50.0`
 - random seed behavior
+- safe resume behavior
 - parameter ranges for perturbation fields
 - whether error/failure runs keep any full image files generated before the error
 
@@ -154,11 +155,21 @@ Success means the average `match_percent` across enabled DeepFace models that co
 
 `failure` folders always contain `sampled_config.json` and `report.json`. `save_unsuccessful` applies only to error/failure attempts. When it is `false`, any full image files produced before the error are removed. Threshold failures are always saved in `unsuccessful`.
 
+Resume behavior:
+
+- Set `"resume": true` in `brute.json` to safely continue after an interrupted terminal run.
+- A run is complete only when its final folder contains both `report.json` and `sampled_config.json`, and `report.json` contains `brute_force.status`.
+- Completed run folders are skipped and never overwritten.
+- Missing run numbers are executed.
+- Incomplete `successful`, `unsuccessful`, or `failures` run folders are moved aside under `failures/incomplete_*` before that run number is retried.
+- Stale temporary `_working/run_000000_*` folders are cleaned before retrying.
+
 Seed behavior:
 
 - `seed` controls deterministic random sampling.
 - If `randomize_attempt_seed` is `true`, each attempt gets a random seed from `attempt_seed_range`.
 - If `randomize_attempt_seed` is `false`, every attempt uses the fixed `seed` as the pipeline, diffusion, and first perturbation seed.
+- Resume preserves the same attempt seed for each run number. If `brute_report.json` has an attempt seed, it is reused; otherwise the seed is regenerated deterministically from `brute.json`.
 - Enabled perturbation steps receive seeds starting at the attempt seed, then incrementing by one in pipeline order.
 
 Each run's `sampled_config.json` is a runnable copy of `pipeline.json` with sampled perturbation values inserted. It also resolves the input and output paths to absolute paths so it can run correctly from inside the run folder.
@@ -189,6 +200,7 @@ python -m geometric_v1.batch_brute_force --config batch_brute.json
 - `prompts`
 - `output_dir`
 - `skip_existing`
+- `overwrite_existing`
 - `parallel_combinations`
 
 `pipeline.json` remains the source of truth for diffusion settings, CPU/GPU flag, DeepFace enabled models, and enabled perturbation methods. `brute.json` remains the source of truth for trials, success threshold, seed behavior, `attempt_seed_range`, `save_unsuccessful`, and perturbation parameter ranges. Batch mode overrides only the input image, prompt, and output folder for each image/prompt combo.
@@ -207,8 +219,17 @@ output/batch_brute/
 ```
 
 `batch_report.json` summarizes total images, total prompts, total planned brute attempts, per-combo status, prompt text, image path, success/unsuccess/failure counts, each combo's `brute_report.json`, and elapsed time.
+Combo statuses are `completed`, `skipped`, `resumed`, or `failed`.
 
-If `skip_existing` is `true`, a combo is skipped when its `brute_report.json` already exists. If `parallel_combinations` is greater than `1`, multiple image/prompt combos run at the same time with a bounded process pool. Be careful with values above `1`: each combo can run diffusion on the GPU, so CUDA memory pressure can rise quickly.
+Safe batch reruns:
+
+- A combo is complete only when its `brute_report.json` has `summary` and exactly `brute.trials` attempts.
+- If `skip_existing` is `true`, only complete combos are skipped.
+- If a combo is incomplete, batch mode rewrites the combo-local configs and reruns plain brute force with resume enabled.
+- If `skip_existing` is `false`, complete combos are not overwritten unless `overwrite_existing` is `true`.
+- After terminal interruption, rerun the same batch command. Complete combos are skipped, incomplete combos are resumed, and missing combos are run.
+
+If `parallel_combinations` is greater than `1`, multiple image/prompt combos run at the same time with a bounded process pool. Be careful with values above `1`: each combo can run diffusion on the GPU, so CUDA memory pressure can rise quickly.
 
 When `randomize_attempt_seed` is `true` in `brute.json`, batch mode pre-generates unique attempt seeds across the whole batch. For example, `2 images x 2 prompts x 100 trials` produces `400` distinct attempt seeds from `attempt_seed_range`.
 

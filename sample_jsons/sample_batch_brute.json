@@ -8,7 +8,8 @@
     "recursive": "false scans only images directly in images_dir. true includes subfolders.",
     "prompts": "Each prompt is paired with each image.",
     "output_dir": "Batch output folder. Contains batch_report.json and one folder per image/prompt combo.",
-    "skip_existing": "true skips a combo if its brute_report.json already exists.",
+    "skip_existing": "true skips a combo only if its brute_report.json is complete.",
+    "overwrite_existing": "false prevents rerunning complete combos when skip_existing is false. true deletes a complete combo folder and runs it fresh.",
     "parallel_combinations": "Number of image/prompt combos to run at the same time. Values above 1 may cause CUDA memory issues because each combo may use diffusion on the GPU."
   },
   "brute_config": "brute.json",
@@ -22,5 +23,6 @@
   ],
   "output_dir": "output/batch_brute",
   "skip_existing": true,
+  "overwrite_existing": false,
   "parallel_combinations": 1
 }

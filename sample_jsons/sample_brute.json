@@ -8,6 +8,7 @@
     "seed": "Seed for random parameter sampling. Also used as fixed attempt seed when randomize_attempt_seed is false.",
     "randomize_attempt_seed": "true picks random attempt seeds from attempt_seed_range. Batch mode makes these unique across the whole batch.",
     "attempt_seed_range": "Inclusive min/max range used for random attempt seeds.",
+    "resume": "true safely continues an interrupted brute run. Completed run folders are skipped; incomplete run folders are moved aside before retrying that run number.",
     "save_unsuccessful": "For actual failures only: false trims generated image files and keeps report.json plus sampled_config.json. Threshold failures are always saved under unsuccessful.",
     "ranges": "Per-perturbation parameter ranges. Only enabled perturbations from pipeline.json are sampled."
   },
@@ -18,6 +19,7 @@
   "seed": 42,
   "randomize_attempt_seed": true,
   "attempt_seed_range": [1, 2147483647],
+  "resume": true,
   "save_unsuccessful": true,
   "ranges": {
     "homography": {

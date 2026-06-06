@@ -10,5 +10,6 @@
   ],
   "output_dir": "output/batch_brute",
   "skip_existing": true,
+  "overwrite_existing": false,
   "parallel_combinations": 1
 }

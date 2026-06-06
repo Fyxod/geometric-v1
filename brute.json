@@ -6,6 +6,7 @@
   "seed": 42,
   "randomize_attempt_seed": true,
   "attempt_seed_range": [1, 2147483647],
+  "resume": true,
   "save_unsuccessful": true,
   "ranges": {
     "homography": {
