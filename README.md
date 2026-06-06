@@ -61,7 +61,9 @@ run_perturbations.py
 run_diffusion.py
 run_deepface_compare.py
 run_deepface_model_check.py
+run_brute_force.py
 pipeline.json
+brute.json
 ```
 
 There is no `src/` layout.
@@ -98,6 +100,64 @@ original_diffused.png
 perturbed_diffused.png
 report.json
 ```
+
+## Brute Force Search
+
+`brute.json` runs random perturbation trials while keeping `pipeline.json` as the source of truth for the input image, prompt, diffusion settings, CPU/GPU flag, DeepFace models, and which perturbation methods are enabled.
+
+Run:
+
+```powershell
+python run_brute_force.py --config brute.json
+```
+
+Module form:
+
+```powershell
+python -m geometric_v1.brute_force --config brute.json
+```
+
+`brute.json` controls only:
+
+- which `pipeline.json` to use
+- number of random attempts
+- brute-force output directory
+- success threshold, such as `50.0`
+- random seed behavior
+- parameter ranges for perturbation fields
+- whether error/failure runs keep any full image files generated before the error
+
+Each completed `successful` or `unsuccessful` run folder contains:
+
+```text
+original.png
+perturbed.png
+original_diffused.png
+perturbed_diffused.png
+report.json
+sampled_config.json
+```
+
+Folder names are deterministic:
+
+```text
+output/brute_force/successful/run_000012
+output/brute_force/unsuccessful/run_000013
+output/brute_force/failures/run_000014
+```
+
+Success means the average `match_percent` across enabled DeepFace models that completed without error is less than or equal to `success_threshold`. Completed runs above the threshold are saved under `unsuccessful`. Actual error runs, including pipeline errors or DeepFace model errors, are saved under `failures`. If a DeepFace model errors, that model is not counted in the average and its error remains in `report.json`.
+
+`failure` folders always contain `sampled_config.json` and `report.json`. `save_unsuccessful` applies only to error/failure attempts. When it is `false`, any full image files produced before the error are removed. Threshold failures are always saved in `unsuccessful`.
+
+Seed behavior:
+
+- `seed` controls deterministic random sampling.
+- If `randomize_attempt_seed` is `true`, each attempt gets a random seed from `attempt_seed_range`.
+- If `randomize_attempt_seed` is `false`, every attempt uses the fixed `seed` as the pipeline, diffusion, and first perturbation seed.
+- Enabled perturbation steps receive seeds starting at the attempt seed, then incrementing by one in pipeline order.
+
+Each run's `sampled_config.json` is a runnable copy of `pipeline.json` with sampled perturbation values inserted. It also resolves the input and output paths to absolute paths so it can run correctly from inside the run folder.
 
 ## Config Shape
 

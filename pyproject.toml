@@ -30,6 +30,7 @@ dependencies = [
 
 [project.scripts]
 geometric-v1 = "geometric_v1.pipeline:main"
+geometric-v1-brute-force = "geometric_v1.brute_force:main"
 
 [tool.setuptools.packages.find]
 include = ["geometric_v1*"]
