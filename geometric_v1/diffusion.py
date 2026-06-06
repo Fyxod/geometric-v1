@@ -59,3 +59,24 @@ def edit_image(image: Image.Image, prompt: str, config: DiffusionConfig) -> Imag
         generator=generator,
     )
     return result.images[0].convert("RGB")
+
+
+def edit_images(images: list[Image.Image], prompt: str, config: DiffusionConfig) -> list[Image.Image]:
+    if not images:
+        return []
+    device = resolve_device(config)
+    pipe = _load_pipe(config.model_id, device)
+    prepared = [_resize_for_diffusion(image, config.max_size) for image in images]
+    generators = [
+        torch.Generator(device=device).manual_seed(config.seed + index)
+        for index in range(len(prepared))
+    ]
+    result = pipe(
+        prompt=[prompt] * len(prepared),
+        image=prepared,
+        num_inference_steps=config.num_inference_steps,
+        guidance_scale=config.guidance_scale,
+        image_guidance_scale=config.image_guidance_scale,
+        generator=generators,
+    )
+    return [image.convert("RGB") for image in result.images]

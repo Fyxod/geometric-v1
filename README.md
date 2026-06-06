@@ -77,6 +77,7 @@ Edit `pipeline.json`, especially:
 - `prompt`
 - perturbation strengths
 - `diffusion.cpu` if you want to force a CPU run
+- `deepface.workers` if you want to override GPU-mode DeepFace worker slots
 - DeepFace model booleans
 
 Then run:
@@ -197,6 +198,7 @@ Each run's `sampled_config.json` is a runnable copy of `pipeline.json` with samp
     "distance_metric": "cosine",
     "enforce_detection": false,
     "align": false,
+    "workers": "auto",
     "models": {
       "VGG-Face": true,
       "Facenet": true,
@@ -219,10 +221,14 @@ Diffusion device notes:
 - Set `"cpu": true` to force InstructPix2Pix onto CPU even when CUDA is available.
 - Keep `"cpu": false` with `"device": "auto"` to use CUDA when PyTorch can see it, otherwise CPU.
 - The pipeline writes `diffusion.resolved_device` into `report.json` so you can confirm the actual device used.
+- GPU-mode pipeline runs use batched diffusion for `original.png` and `perturbed.png`. CPU-mode runs keep the old sequential diffusion path.
+- If batched GPU diffusion errors, the pipeline falls back to sequential diffusion and records `diffusion.batch_error` in `report.json`.
 
 DeepFace model notes:
 
 - All DeepFace recognition model booleans are enabled by default because this environment was set up and tested with all of them.
+- `workers` can be `"auto"` or an integer. It is only used when the full pipeline resolves diffusion to CUDA. CPU-mode runs and standalone DeepFace commands stay sequential.
+- In `"auto"` mode, the worker count is capped at 3 and also limited by enabled model count, CPU count, and available RAM. The chosen value is recorded under `deepface.execution.resolved_workers` in `report.json`.
 - The project caches known DeepFace weight files into `~\.deepface\weights` before each model runs. The first all-model run can download several large files.
 - `Dlib` requires a local C++ build toolchain. On this machine it built successfully with `CMAKE_ARGS="-DDLIB_USE_CUDA=OFF"`.
 - `Buffalo_L` requires `insightface`, `onnxruntime`, and its Google Drive ONNX weight. These are included in setup and were tested.

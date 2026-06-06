@@ -56,6 +56,7 @@ class DeepFaceConfig:
     distance_metric: str = "cosine"
     enforce_detection: bool = False
     align: bool = False
+    workers: int | str = "auto"
     models: dict[str, bool] = field(default_factory=lambda: dict(DEFAULT_DEEPFACE_MODELS))
 
 
@@ -111,12 +112,20 @@ def _diffusion_from_dict(values: dict[str, Any], base_seed: int) -> DiffusionCon
 def _deepface_from_dict(values: dict[str, Any]) -> DeepFaceConfig:
     models = dict(DEFAULT_DEEPFACE_MODELS)
     models.update({str(key): bool(value) for key, value in values.get("models", {}).items()})
+    workers_value = values.get("workers", "auto")
+    workers: int | str
+    if isinstance(workers_value, int):
+        workers = workers_value
+    else:
+        workers_text = str(workers_value)
+        workers = int(workers_text) if workers_text.isdigit() else workers_text
     return DeepFaceConfig(
         enabled=bool(values.get("enabled", True)),
         detector_backend=str(values.get("detector_backend", "skip")),
         distance_metric=str(values.get("distance_metric", "cosine")),
         enforce_detection=bool(values.get("enforce_detection", False)),
         align=bool(values.get("align", False)),
+        workers=workers,
         models=models,
     )
 

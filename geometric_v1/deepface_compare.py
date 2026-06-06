@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import time
 import bz2
+import os
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -115,60 +117,147 @@ def _ensure_known_weight(model_name: str) -> None:
             archive.extractall(spec.target.parent)
 
 
+def _memory_gb() -> tuple[float | None, float | None]:
+    try:
+        import psutil
+
+        memory = psutil.virtual_memory()
+        return memory.total / (1024**3), memory.available / (1024**3)
+    except Exception:
+        return None, None
+
+
+def _enabled_model_count(models: dict[str, bool]) -> int:
+    return sum(1 for enabled in models.values() if enabled)
+
+
+def resolve_deepface_workers(
+    config: DeepFaceConfig,
+    selected_models: dict[str, bool],
+    allow_parallel: bool,
+) -> tuple[int, dict[str, Any]]:
+    enabled_count = _enabled_model_count(selected_models)
+    cpu_count = os.cpu_count() or 1
+    total_memory_gb, available_memory_gb = _memory_gb()
+    metadata: dict[str, Any] = {
+        "allow_parallel": allow_parallel,
+        "requested_workers": config.workers,
+        "enabled_models": enabled_count,
+        "cpu_count": cpu_count,
+        "total_memory_gb": round(total_memory_gb, 2) if total_memory_gb is not None else None,
+        "available_memory_gb": round(available_memory_gb, 2) if available_memory_gb is not None else None,
+    }
+
+    if not allow_parallel or enabled_count <= 1:
+        metadata["resolved_workers"] = 1
+        metadata["parallel"] = False
+        return 1, metadata
+
+    if isinstance(config.workers, int):
+        requested = config.workers
+    else:
+        workers_text = str(config.workers).strip().lower()
+        requested = int(workers_text) if workers_text.isdigit() else None
+
+    if requested is not None:
+        workers = max(1, min(requested, enabled_count))
+    else:
+        cpu_slots = max(1, min(3, cpu_count // 4 or 1))
+        memory_slots = 3
+        if total_memory_gb is not None:
+            memory_slots = max(1, min(3, int(total_memory_gb // 5)))
+        if available_memory_gb is not None and available_memory_gb < 1.5:
+            memory_slots = 1
+        workers = max(1, min(3, enabled_count, cpu_slots, memory_slots))
+
+    metadata["resolved_workers"] = workers
+    metadata["parallel"] = workers > 1
+    return workers, metadata
+
+
+def _compare_one_model(image_a: Path, image_b: Path, config: DeepFaceConfig, model_name: str) -> tuple[str, dict[str, Any]]:
+    from deepface import DeepFace
+
+    started = time.perf_counter()
+    try:
+        _ensure_known_weight(model_name)
+        verification = DeepFace.verify(
+            img1_path=str(image_a),
+            img2_path=str(image_b),
+            model_name=model_name,
+            detector_backend=config.detector_backend,
+            distance_metric=config.distance_metric,
+            enforce_detection=config.enforce_detection,
+            align=config.align,
+            silent=True,
+        )
+        distance = float(verification.get("distance")) if verification.get("distance") is not None else None
+        threshold = float(verification.get("threshold")) if verification.get("threshold") is not None else None
+        return model_name, {
+            "enabled": True,
+            "ok": True,
+            "verified": bool(verification.get("verified")),
+            "distance": distance,
+            "threshold": threshold,
+            "match_percent": _match_percent(distance, threshold),
+            "elapsed_seconds": time.perf_counter() - started,
+        }
+    except Exception as exc:
+        return model_name, {
+            "enabled": True,
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "elapsed_seconds": time.perf_counter() - started,
+        }
+
+
 def compare_images(
     image_a: Path,
     image_b: Path,
     config: DeepFaceConfig | None = None,
     models: dict[str, bool] | None = None,
+    allow_parallel: bool = False,
 ) -> dict[str, Any]:
-    from deepface import DeepFace
-
     config = config or DeepFaceConfig()
-    selected_models = models or config.models
+    selected_models = models if models is not None else config.models
+    workers, execution = resolve_deepface_workers(config, selected_models, allow_parallel)
     results: dict[str, Any] = {
         "image_a": str(image_a),
         "image_b": str(image_b),
         "detector_backend": config.detector_backend,
         "distance_metric": config.distance_metric,
+        "execution": execution,
         "models": {},
     }
 
+    enabled_models: list[str] = []
+    skipped_models: dict[str, dict[str, Any]] = {}
     for model_name, enabled in selected_models.items():
         if not enabled:
-            results["models"][model_name] = {"enabled": False, "skipped": True}
+            skipped_models[model_name] = {"enabled": False, "skipped": True}
             continue
+        enabled_models.append(model_name)
 
-        started = time.perf_counter()
-        try:
-            _ensure_known_weight(model_name)
-            verification = DeepFace.verify(
-                img1_path=str(image_a),
-                img2_path=str(image_b),
-                model_name=model_name,
-                detector_backend=config.detector_backend,
-                distance_metric=config.distance_metric,
-                enforce_detection=config.enforce_detection,
-                align=config.align,
-                silent=True,
-            )
-            distance = float(verification.get("distance")) if verification.get("distance") is not None else None
-            threshold = float(verification.get("threshold")) if verification.get("threshold") is not None else None
-            results["models"][model_name] = {
-                "enabled": True,
-                "ok": True,
-                "verified": bool(verification.get("verified")),
-                "distance": distance,
-                "threshold": threshold,
-                "match_percent": _match_percent(distance, threshold),
-                "elapsed_seconds": time.perf_counter() - started,
-            }
-        except Exception as exc:
-            results["models"][model_name] = {
-                "enabled": True,
-                "ok": False,
-                "error": f"{type(exc).__name__}: {exc}",
-                "elapsed_seconds": time.perf_counter() - started,
-            }
+    model_results: dict[str, dict[str, Any]] = {}
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [
+                executor.submit(_compare_one_model, image_a, image_b, config, model_name)
+                for model_name in enabled_models
+            ]
+            for future in as_completed(futures):
+                model_name, model_result = future.result()
+                model_results[model_name] = model_result
+    else:
+        for model_name in enabled_models:
+            model_name, model_result = _compare_one_model(image_a, image_b, config, model_name)
+            model_results[model_name] = model_result
+
+    for model_name in selected_models:
+        if model_name in skipped_models:
+            results["models"][model_name] = skipped_models[model_name]
+        else:
+            results["models"][model_name] = model_results[model_name]
 
     ok_values = [
         value["match_percent"]

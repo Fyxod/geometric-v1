@@ -10,7 +10,7 @@ from typing import Any
 
 from .config import load_pipeline_config
 from .deepface_compare import compare_images
-from .diffusion import edit_image, resolve_device
+from .diffusion import edit_image, edit_images, resolve_device
 from .image_io import load_image, load_pil_image, save_image, save_pil
 from .perturbations import apply_perturbation_pipeline
 
@@ -20,6 +20,8 @@ def run_pipeline(config_path: Path) -> dict[str, Any]:
     config = load_pipeline_config(config_path)
     if config.diffusion.cpu:
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    resolved_device = resolve_device(config.diffusion)
+    use_gpu_optimizations = resolved_device.startswith("cuda")
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
     original_path = config.output_dir / "original.png"
@@ -35,14 +37,35 @@ def run_pipeline(config_path: Path) -> dict[str, Any]:
     perturbed_array = apply_perturbation_pipeline(original_array, config.perturbations)
     save_image(perturbed_path, perturbed_array)
 
-    original_diffused = edit_image(original_pil, config.prompt, config.diffusion)
-    perturbed_diffused = edit_image(load_pil_image(perturbed_path), config.prompt, config.diffusion)
+    diffusion_report = {**asdict(config.diffusion), "resolved_device": resolved_device, "execution_mode": "sequential"}
+    perturbed_pil = load_pil_image(perturbed_path)
+    if use_gpu_optimizations:
+        try:
+            original_diffused, perturbed_diffused = edit_images(
+                [original_pil, perturbed_pil],
+                config.prompt,
+                config.diffusion,
+            )
+            diffusion_report["execution_mode"] = "batched"
+        except Exception as exc:
+            diffusion_report["execution_mode"] = "sequential_after_batch_error"
+            diffusion_report["batch_error"] = f"{type(exc).__name__}: {exc}"
+            original_diffused = edit_image(original_pil, config.prompt, config.diffusion)
+            perturbed_diffused = edit_image(perturbed_pil, config.prompt, config.diffusion)
+    else:
+        original_diffused = edit_image(original_pil, config.prompt, config.diffusion)
+        perturbed_diffused = edit_image(perturbed_pil, config.prompt, config.diffusion)
     save_pil(original_diffused_path, original_diffused)
     save_pil(perturbed_diffused_path, perturbed_diffused)
 
     deepface_report = None
     if config.deepface.enabled:
-        deepface_report = compare_images(original_diffused_path, perturbed_diffused_path, config.deepface)
+        deepface_report = compare_images(
+            original_diffused_path,
+            perturbed_diffused_path,
+            config.deepface,
+            allow_parallel=use_gpu_optimizations,
+        )
 
     report = {
         "config_path": str(config.config_path),
@@ -53,7 +76,7 @@ def run_pipeline(config_path: Path) -> dict[str, Any]:
         "elapsed_seconds": time.perf_counter() - started,
         "deepface": deepface_report,
         "perturbations": [asdict(step) for step in config.perturbations],
-        "diffusion": {**asdict(config.diffusion), "resolved_device": resolve_device(config.diffusion)},
+        "diffusion": diffusion_report,
         "outputs": {
             "original": str(original_path),
             "perturbed": str(perturbed_path),

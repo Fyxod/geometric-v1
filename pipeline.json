@@ -59,6 +59,7 @@
     "distance_metric": "cosine",
     "enforce_detection": false,
     "align": false,
+    "workers": "auto",
     "models": {
       "VGG-Face": true,
       "Facenet": true,
