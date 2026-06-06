@@ -2,7 +2,7 @@
   "input": "samples/image.png",
   "output_dir": "output/run_002",
   "prompt": "add sunglasses",
-  "seed": 7,
+  "seed": 15,
   "perturbations": [
     {
       "method": "homography",
@@ -12,31 +12,31 @@
     {
       "method": "thin-plate-spline",
       "enabled": true,
-      "strength": 0.025,
+      "strength": 0.002,
       "grid": 7
     },
     {
       "method": "delaunay",
       "enabled": true,
-      "strength": 0.025,
+      "strength": 0.008, 
       "grid": 8
     },
     {
       "method": "fft-phase",
       "enabled": true,
-      "strength": 0.2,
-      "coefficients": 10
+      "strength": 50000,
+      "coefficients": 6
     },
     {
       "method": "elastic",
       "enabled": true,
-      "strength": 0.025,
+      "strength": 0.01,
       "sigma": 12.0
     },
     {
       "method": "rolling-shutter",
       "enabled": true,
-      "strength": 0.03,
+      "strength": 0.008,
       "rolling_frequency": 1.5,
       "rolling_phase": 0.0,
       "rolling_shear": 0.02,

@@ -12,23 +12,23 @@
       "strength": [0.01, 0.08]
     },
     "thin-plate-spline": {
-      "strength": [0.01, 0.06],
+      "strength": [0.001, 0.003],
       "grid": [5, 9]
     },
     "delaunay": {
-      "strength": [0.01, 0.06],
+      "strength": [0, 0.009],
       "grid": [6, 12]
     },
     "fft-phase": {
-      "strength": [0.05, 0.35],
+      "strength": [0, 10000],
       "coefficients": [4, 16]
     },
     "elastic": {
-      "strength": [0.01, 0.06],
+      "strength": [0, 0.01],
       "sigma": [6.0, 18.0]
     },
     "rolling-shutter": {
-      "strength": [0.01, 0.08],
+      "strength": [0, 0.009],
       "rolling_frequency": [0.5, 3.0],
       "rolling_shear": [0.0, 0.06],
       "rolling_acceleration": [-0.03, 0.03]
