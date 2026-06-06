@@ -1,12 +1,12 @@
 {
-  "input": "samples/original.png",
-  "output_dir": "output/run_001",
-  "prompt": "make the person look like a professional studio portrait",
+  "input": "samples/image.png",
+  "output_dir": "output/run_002",
+  "prompt": "add sunglasses",
   "seed": 7,
   "perturbations": [
     {
       "method": "homography",
-      "enabled": true,
+      "enabled": false,
       "strength": 0.04
     },
     {

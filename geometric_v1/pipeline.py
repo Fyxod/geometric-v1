@@ -50,6 +50,10 @@ def run_pipeline(config_path: Path) -> dict[str, Any]:
         "output_dir": str(config.output_dir),
         "prompt": config.prompt,
         "seed": config.seed,
+        "elapsed_seconds": time.perf_counter() - started,
+        "deepface": deepface_report,
+        "perturbations": [asdict(step) for step in config.perturbations],
+        "diffusion": {**asdict(config.diffusion), "resolved_device": resolve_device(config.diffusion)},
         "outputs": {
             "original": str(original_path),
             "perturbed": str(perturbed_path),
@@ -57,10 +61,6 @@ def run_pipeline(config_path: Path) -> dict[str, Any]:
             "perturbed_diffused": str(perturbed_diffused_path),
             "report": str(report_path),
         },
-        "diffusion": {**asdict(config.diffusion), "resolved_device": resolve_device(config.diffusion)},
-        "perturbations": [asdict(step) for step in config.perturbations],
-        "deepface": deepface_report,
-        "elapsed_seconds": time.perf_counter() - started,
     }
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report
