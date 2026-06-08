@@ -26,12 +26,15 @@ dependencies = [
   "onnxruntime>=1.26",
   "albumentations>=2.0.8",
   "gdown>=6.1",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
 ]
 
 [project.scripts]
 geometric-v1 = "geometric_v1.pipeline:main"
 geometric-v1-brute-force = "geometric_v1.brute_force:main"
 geometric-v1-batch-brute-force = "geometric_v1.batch_brute_force:main"
+geometric-v1-ui = "geometric_v1.ui.backend:main"
 
 [tool.setuptools.packages.find]
 include = ["geometric_v1*"]

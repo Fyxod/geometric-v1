@@ -7,13 +7,14 @@ import random
 import re
 import shutil
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .brute_force import load_brute_config, run_brute_force
+from .events import EventCallback, StopCallback, emit_event, is_stop_requested, with_event_context
 
 
 DEFAULT_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp"]
@@ -165,11 +166,38 @@ def _write_combo_configs(
     return combo_brute_path
 
 
-def _run_combo(plan: ComboPlan) -> dict[str, Any]:
+def _run_combo(
+    plan: ComboPlan,
+    event_callback: EventCallback | None = None,
+    stop_requested: StopCallback | None = None,
+) -> dict[str, Any]:
     started = time.perf_counter()
-    report = run_brute_force(plan.brute_config_path, attempt_seeds=plan.attempt_seeds, rng_seed=plan.rng_seed)
+    emit_event(
+        event_callback,
+        "batch_combo_running",
+        image_index=plan.image_index,
+        prompt_index=plan.prompt_index,
+        image_path=str(plan.image_path),
+        prompt=plan.prompt,
+        output_dir=str(plan.combo_dir),
+        status="running",
+    )
+    report = run_brute_force(
+        plan.brute_config_path,
+        attempt_seeds=plan.attempt_seeds,
+        rng_seed=plan.rng_seed,
+        event_callback=with_event_context(
+            event_callback,
+            image_index=plan.image_index,
+            prompt_index=plan.prompt_index,
+            combo_dir=str(plan.combo_dir),
+            image_path=str(plan.image_path),
+            prompt=plan.prompt,
+        ),
+        stop_requested=stop_requested,
+    )
     summary = report.get("summary", {})
-    return {
+    record = {
         "image_index": plan.image_index,
         "prompt_index": plan.prompt_index,
         "status": plan.result_status,
@@ -182,6 +210,17 @@ def _run_combo(plan: ComboPlan) -> dict[str, Any]:
         "failures": int(summary.get("failures", 0)),
         "elapsed_seconds": time.perf_counter() - started,
     }
+    emit_event(
+        event_callback,
+        "batch_combo_completed" if plan.result_status == "completed" else "batch_combo_resumed",
+        image_index=plan.image_index,
+        prompt_index=plan.prompt_index,
+        output_dir=str(plan.combo_dir),
+        brute_report=record["brute_report"],
+        status=plan.result_status,
+        summary=summary,
+    )
+    return record
 
 
 def _skipped_record(plan: ComboPlan) -> dict[str, Any]:
@@ -256,8 +295,13 @@ def _combo_complete(combo_dir: Path, trials: int) -> bool:
     )
 
 
-def run_batch_brute_force(config_path: Path) -> dict[str, Any]:
+def run_batch_brute_force(
+    config_path: Path,
+    event_callback: EventCallback | None = None,
+    stop_requested: StopCallback | None = None,
+) -> dict[str, Any]:
     started = time.perf_counter()
+    emit_event(event_callback, "run_started", run_type="batch_brute", config_path=str(config_path))
     config = load_batch_brute_config(config_path)
     brute_config = load_brute_config(config.brute_config)
     brute_data = _read_json(config.brute_config)
@@ -293,6 +337,7 @@ def run_batch_brute_force(config_path: Path) -> dict[str, Any]:
     sampling_seed_rng = random.Random(brute_config.seed + 1)
     plans: list[ComboPlan] = []
     seed_cursor = 0
+    total_combos = len(images) * len(config.prompts)
     for image_index, image_path in enumerate(images):
         for prompt_index, prompt in enumerate(config.prompts):
             combo_dir = _combo_dirs(config, image_index, image_path, prompt_index, prompt)
@@ -314,21 +359,48 @@ def run_batch_brute_force(config_path: Path) -> dict[str, Any]:
                     result_status="completed",
                 )
             )
+            emit_event(
+                event_callback,
+                "batch_combo_queued",
+                image_index=image_index,
+                prompt_index=prompt_index,
+                image_path=str(image_path),
+                prompt=prompt,
+                combo_dir=str(combo_dir),
+                combo_index=len(plans),
+                total_combos=total_combos,
+            )
 
     pending: list[ComboPlan] = []
     for plan in plans:
         combo_is_complete = _combo_complete(plan.combo_dir, brute_config.trials)
         combo_exists = plan.combo_dir.exists()
         if config.skip_existing and combo_is_complete:
-            batch_report["results"].append(_skipped_record(plan))
+            skipped = _skipped_record(plan)
+            batch_report["results"].append(skipped)
+            emit_event(
+                event_callback,
+                "batch_combo_skipped",
+                image_index=plan.image_index,
+                prompt_index=plan.prompt_index,
+                output_dir=str(plan.combo_dir),
+                brute_report=skipped["brute_report"],
+                status="skipped",
+            )
         elif combo_is_complete and not config.skip_existing and not config.overwrite_existing:
-            batch_report["results"].append(
-                _failure_record(
-                    plan,
-                    FileExistsError(
-                        "combo is complete; set overwrite_existing true to rerun without preserving completed folders"
-                    ),
-                )
+            failure = _failure_record(
+                plan,
+                FileExistsError("combo is complete; set overwrite_existing true to rerun without preserving completed folders"),
+            )
+            batch_report["results"].append(failure)
+            emit_event(
+                event_callback,
+                "batch_combo_failed",
+                image_index=plan.image_index,
+                prompt_index=plan.prompt_index,
+                output_dir=str(plan.combo_dir),
+                status="failed",
+                error=failure["error"],
             )
         else:
             result_status = "resumed" if combo_exists and not combo_is_complete else "completed"
@@ -359,12 +431,52 @@ def run_batch_brute_force(config_path: Path) -> dict[str, Any]:
 
     if config.parallel_combinations == 1:
         for plan in pending:
+            if is_stop_requested(stop_requested):
+                emit_event(event_callback, "run_stopping", run_type="batch_brute", next_combo=str(plan.combo_dir))
+                break
             try:
-                batch_report["results"].append(_run_combo(plan))
+                batch_report["results"].append(
+                    _run_combo(plan, event_callback=event_callback, stop_requested=stop_requested)
+                )
             except Exception as exc:
-                batch_report["results"].append(_failure_record(plan, exc))
+                failure = _failure_record(plan, exc)
+                batch_report["results"].append(failure)
+                emit_event(
+                    event_callback,
+                    "batch_combo_failed",
+                    image_index=plan.image_index,
+                    prompt_index=plan.prompt_index,
+                    output_dir=str(plan.combo_dir),
+                    status="failed",
+                    error=failure["error"],
+                )
             batch_report["summary"] = _summarize(batch_report["results"])
             _write_json(batch_report_path, batch_report)
+    elif pending and event_callback is not None:
+        with ThreadPoolExecutor(max_workers=config.parallel_combinations) as executor:
+            futures = {
+                executor.submit(_run_combo, plan, event_callback, stop_requested): plan
+                for plan in pending
+                if not is_stop_requested(stop_requested)
+            }
+            for future in as_completed(futures):
+                plan = futures[future]
+                try:
+                    batch_report["results"].append(future.result())
+                except Exception as exc:
+                    failure = _failure_record(plan, exc)
+                    batch_report["results"].append(failure)
+                    emit_event(
+                        event_callback,
+                        "batch_combo_failed",
+                        image_index=plan.image_index,
+                        prompt_index=plan.prompt_index,
+                        output_dir=str(plan.combo_dir),
+                        status="failed",
+                        error=failure["error"],
+                    )
+                batch_report["summary"] = _summarize(batch_report["results"])
+                _write_json(batch_report_path, batch_report)
     elif pending:
         with ProcessPoolExecutor(max_workers=config.parallel_combinations) as executor:
             futures = {executor.submit(_run_combo, plan): plan for plan in pending}
@@ -380,7 +492,16 @@ def run_batch_brute_force(config_path: Path) -> dict[str, Any]:
     batch_report["results"].sort(key=lambda record: (record["image_index"], record["prompt_index"]))
     batch_report["summary"] = _summarize(batch_report["results"])
     batch_report["elapsed_seconds"] = time.perf_counter() - started
+    batch_report["status"] = "stopped" if is_stop_requested(stop_requested) else "completed"
     _write_json(batch_report_path, batch_report)
+    emit_event(
+        event_callback,
+        "run_completed" if batch_report["status"] == "completed" else "run_stopped",
+        run_type="batch_brute",
+        status=batch_report["status"],
+        report_path=str(batch_report_path),
+        summary=batch_report["summary"],
+    )
     return batch_report
 
 

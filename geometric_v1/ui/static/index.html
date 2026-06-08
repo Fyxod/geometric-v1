@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>geometric-v1 dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">geometric-v1</div>
+      <button class="nav active" data-tab="perturb">Perturb</button>
+      <button class="nav" data-tab="diffuse">Diffuse</button>
+      <button class="nav" data-tab="pipeline">Pipeline</button>
+      <button class="nav" data-tab="brute">Brute Force</button>
+      <button class="nav" data-tab="batch_brute">Batch Brute Force</button>
+      <button class="nav" data-tab="history">History</button>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div>
+          <h1 id="tab-title">Perturb</h1>
+          <p id="tab-subtitle">Temporary config edits are saved only for the run being started.</p>
+        </div>
+        <div class="status" id="connection-status">idle</div>
+      </header>
+
+      <section class="workspace">
+        <div class="config-panel" id="config-panel"></div>
+        <div class="run-panel">
+          <div class="toolbar">
+            <button id="start-btn">Start</button>
+            <button id="stop-btn" disabled>Stop After Current Attempt</button>
+            <button id="resume-btn" disabled>Resume Selected Run</button>
+          </div>
+
+          <div class="summary-grid">
+            <div><span>Run</span><strong id="run-id">none</strong></div>
+            <div><span>Status</span><strong id="run-status">idle</strong></div>
+            <div><span>Current Attempt</span><strong id="current-attempt">-</strong></div>
+            <div><span>Mean</span><strong id="current-mean">-</strong></div>
+            <div><span>Success</span><strong id="count-success">0</strong></div>
+            <div><span>Unsuccessful</span><strong id="count-unsuccessful">0</strong></div>
+            <div><span>Failures</span><strong id="count-failures">0</strong></div>
+            <div><span>Skipped/Resumed</span><strong id="count-skip-resume">0 / 0</strong></div>
+          </div>
+
+          <div class="score-panel">
+            <div>
+              <h3>Lowest Mean</h3>
+              <pre id="min-score">-</pre>
+            </div>
+            <div>
+              <h3>Highest Mean</h3>
+              <pre id="max-score">-</pre>
+            </div>
+          </div>
+
+          <div class="combo-panel" id="combo-panel">
+            <h3>Batch Combination</h3>
+            <div id="combo-state">-</div>
+          </div>
+
+          <div class="image-grid">
+            <figure><div class="image-box" id="img-original">empty</div><figcaption>original image</figcaption></figure>
+            <figure><div class="image-box" id="img-perturbed">empty</div><figcaption>perturbed image</figcaption></figure>
+            <figure><div class="image-box" id="img-original_diffused">empty</div><figcaption>original diffused</figcaption></figure>
+            <figure><div class="image-box" id="img-perturbed_diffused">empty</div><figcaption>perturbed diffused</figcaption></figure>
+          </div>
+
+          <div class="deepface">
+            <h3>DeepFace Models</h3>
+            <div id="deepface-models" class="models"></div>
+          </div>
+
+          <div class="split">
+            <section>
+              <h3>Events</h3>
+              <div id="events" class="events"></div>
+            </section>
+            <section>
+              <h3>Run Inspector</h3>
+              <pre id="inspector">{}</pre>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="history-section">
+        <div class="history-head">
+          <h2>Previous Runs</h2>
+          <button id="refresh-history">Refresh</button>
+        </div>
+        <div id="history-list" class="history-list"></div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
