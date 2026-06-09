@@ -23,7 +23,7 @@ python -m geometric_v1.pipeline --config linux-gpu/pipeline.json
 The Ubuntu profile lives in `linux-gpu/` and includes:
 
 - `Readme.md`: Ubuntu A6000 installation and run instructions
-- `install_linux_a6000.sh`: combined apt, Python 3.11 venv, CUDA PyTorch, and project dependency installer
+- `install_linux_a6000.sh`: no-root installer for Python 3.11 env, CUDA PyTorch, and project dependencies
 - `pipeline.json`, `brute.json`, `batch_brute.json`: A6000-oriented configs
 - `parameters.md`: explanation of every parameter change
 

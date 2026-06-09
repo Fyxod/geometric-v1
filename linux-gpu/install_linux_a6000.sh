@@ -1,59 +1,122 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PYTHON_BIN="${PYTHON_BIN:-python3.11}"
-VENV_DIR="${VENV_DIR:-.venv-linux-gpu}"
+# No sudo. No apt. This script installs into user-writable locations only.
+#
+# Defaults:
+# - Use python3.11 if it exists.
+# - Otherwise download micromamba into ~/.local/bin and create Python 3.11 env locally.
+# - Install CUDA PyTorch and project requirements with pip.
+
+PYTHON_BIN="${PYTHON_BIN:-auto}"
+ENV_DIR="${ENV_DIR:-.venv-linux-gpu}"
 PYTORCH_CUDA="${PYTORCH_CUDA:-cu128}"
-INSTALL_SYSTEM_PACKAGES="${INSTALL_SYSTEM_PACKAGES:-1}"
-INSTALL_DEADSNAKES="${INSTALL_DEADSNAKES:-1}"
 SKIP_TORCH="${SKIP_TORCH:-0}"
+NO_VENV="${NO_VENV:-0}"
+USE_MICROMAMBA_IF_NEEDED="${USE_MICROMAMBA_IF_NEEDED:-1}"
+MICROMAMBA_BIN="${MICROMAMBA_BIN:-$HOME/.local/bin/micromamba}"
+MICROMAMBA_ROOT_PREFIX="${MICROMAMBA_ROOT_PREFIX:-$HOME/.local/micromamba}"
+INSTALL_DLIB="${INSTALL_DLIB:-1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ENV_PATH="${REPO_ROOT}/${ENV_DIR}"
 
 log() {
   printf '\n[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
 }
 
-need_sudo() {
-  if [[ "${EUID}" -eq 0 ]]; then
-    "$@"
-  else
-    sudo "$@"
-  fi
+die() {
+  printf '\nERROR: %s\n' "$*" >&2
+  exit 2
 }
 
-install_apt_packages() {
-  if ! command -v apt-get >/dev/null 2>&1; then
-    log "apt-get was not found. Skipping system package install."
+python_is_311() {
+  "$1" - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if sys.version_info[:2] == (3, 11) else 1)
+PY
+}
+
+find_python311() {
+  if [[ "${PYTHON_BIN}" != "auto" ]]; then
+    command -v "${PYTHON_BIN}" >/dev/null 2>&1 || return 1
+    python_is_311 "${PYTHON_BIN}" || return 1
+    command -v "${PYTHON_BIN}"
     return
   fi
 
-  log "Installing Linux build/runtime packages"
-  need_sudo apt-get update
-  need_sudo apt-get install -y \
-    build-essential \
-    cmake \
-    curl \
-    git \
-    libgl1 \
-    libglib2.0-0 \
-    libhdf5-dev \
-    libsm6 \
-    libxext6 \
-    libxrender1 \
-    pkg-config \
-    wget
-
-  if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
-    log "${PYTHON_BIN} not found. Installing Python 3.11 packages."
-    need_sudo apt-get install -y software-properties-common
-    if [[ "${INSTALL_DEADSNAKES}" == "1" ]] && command -v add-apt-repository >/dev/null 2>&1; then
-      need_sudo add-apt-repository -y ppa:deadsnakes/ppa
-      need_sudo apt-get update
+  for candidate in python3.11 python3 python; do
+    if command -v "${candidate}" >/dev/null 2>&1 && python_is_311 "${candidate}"; then
+      command -v "${candidate}"
+      return
     fi
-    need_sudo apt-get install -y python3.11 python3.11-dev python3.11-venv
+  done
+  return 1
+}
+
+download_micromamba() {
+  if [[ -x "${MICROMAMBA_BIN}" ]]; then
+    return
   fi
+
+  command -v curl >/dev/null 2>&1 || die "curl is required to download micromamba. Ask the admin for curl, or set PYTHON_BIN to an existing Python 3.11."
+  command -v tar >/dev/null 2>&1 || die "tar is required to unpack micromamba. Ask the admin for tar, or set PYTHON_BIN to an existing Python 3.11."
+
+  log "Downloading micromamba into user space: ${MICROMAMBA_BIN}"
+  tmp_dir="$(mktemp -d)"
+  mkdir -p "$(dirname "${MICROMAMBA_BIN}")"
+  curl -L "https://micro.mamba.pm/api/micromamba/linux-64/latest" -o "${tmp_dir}/micromamba.tar.bz2"
+  tar -xjf "${tmp_dir}/micromamba.tar.bz2" -C "${tmp_dir}"
+  mv "${tmp_dir}/bin/micromamba" "${MICROMAMBA_BIN}"
+  chmod +x "${MICROMAMBA_BIN}"
+  rm -rf "${tmp_dir}"
+}
+
+create_micromamba_env() {
+  download_micromamba
+  export MAMBA_ROOT_PREFIX="${MICROMAMBA_ROOT_PREFIX}"
+
+  if [[ ! -d "${ENV_PATH}" ]]; then
+    log "Creating local micromamba environment: ${ENV_PATH}"
+    "${MICROMAMBA_BIN}" create -y -p "${ENV_PATH}" -c conda-forge \
+      python=3.11 \
+      pip \
+      setuptools \
+      wheel \
+      cmake \
+      make \
+      c-compiler \
+      cxx-compiler \
+      pkg-config \
+      libstdcxx-ng \
+      libgcc-ng
+  else
+    log "Using existing environment: ${ENV_PATH}"
+  fi
+
+  # shellcheck disable=SC1090
+  eval "$("${MICROMAMBA_BIN}" shell hook -s bash)"
+  micromamba activate "${ENV_PATH}"
+}
+
+create_venv() {
+  local python_bin="$1"
+
+  if [[ "${NO_VENV}" == "1" ]]; then
+    log "NO_VENV=1, using current Python environment"
+    return
+  fi
+
+  if [[ ! -d "${ENV_PATH}" ]]; then
+    log "Creating virtual environment: ${ENV_PATH}"
+    "${python_bin}" -m venv "${ENV_PATH}" || die "Could not create venv. If python3.11-venv is unavailable and you do not have root, rerun with USE_MICROMAMBA_IF_NEEDED=1."
+  else
+    log "Using existing virtual environment: ${ENV_PATH}"
+  fi
+
+  # shellcheck disable=SC1091
+  source "${ENV_PATH}/bin/activate"
 }
 
 install_torch() {
@@ -64,18 +127,47 @@ install_torch() {
 
   case "${PYTORCH_CUDA}" in
     cu128|cu126|cu118)
-      log "Installing PyTorch CUDA wheel set: ${PYTORCH_CUDA}"
+      log "Installing PyTorch CUDA wheel set with pip: ${PYTORCH_CUDA}"
       python -m pip install torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/${PYTORCH_CUDA}"
       ;;
     cpu)
-      log "Installing CPU-only PyTorch wheel set"
+      log "Installing CPU-only PyTorch wheel set with pip"
       python -m pip install torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/cpu"
       ;;
     *)
-      printf 'Unsupported PYTORCH_CUDA=%s. Use cu128, cu126, cu118, or cpu.\n' "${PYTORCH_CUDA}" >&2
-      exit 2
+      die "Unsupported PYTORCH_CUDA=${PYTORCH_CUDA}. Use cu128, cu126, cu118, or cpu."
       ;;
   esac
+}
+
+install_requirements() {
+  log "Installing project requirements with pip"
+  if [[ "${INSTALL_DLIB}" == "1" ]]; then
+    if ! CMAKE_ARGS="-DDLIB_USE_CUDA=OFF" python -m pip install -r requirements.txt; then
+      cat >&2 <<'EOF'
+
+The dependency install failed. On no-root servers, the most common cause is dlib needing
+compiler/CMake pieces that are not available in the current environment.
+
+Options:
+  1. Use the default micromamba fallback:
+       USE_MICROMAMBA_IF_NEEDED=1 bash linux-gpu/install_linux_a6000.sh
+
+  2. Skip dlib and disable the Dlib DeepFace model in your JSON:
+       INSTALL_DLIB=0 bash linux-gpu/install_linux_a6000.sh
+
+EOF
+      exit 1
+    fi
+  else
+    log "INSTALL_DLIB=0, installing requirements without dlib"
+    tmp_req="$(mktemp)"
+    grep -v -E '^dlib([=<>!~ ]|$)' requirements.txt > "${tmp_req}"
+    python -m pip install -r "${tmp_req}"
+    rm -f "${tmp_req}"
+  fi
+
+  python -m pip install "typing-extensions>=4.14,<5"
 }
 
 verify_gpu() {
@@ -83,40 +175,11 @@ verify_gpu() {
   if command -v nvidia-smi >/dev/null 2>&1; then
     nvidia-smi
   else
-    log "nvidia-smi not found. Install the NVIDIA driver before running GPU workloads."
+    log "nvidia-smi not found in PATH. The Python install can continue, but GPU runs need the NVIDIA driver visible."
   fi
 }
 
-main() {
-  cd "${REPO_ROOT}"
-  log "Repository root: ${REPO_ROOT}"
-  verify_gpu
-
-  if [[ "${INSTALL_SYSTEM_PACKAGES}" == "1" ]]; then
-    install_apt_packages
-  else
-    log "Skipping system package install because INSTALL_SYSTEM_PACKAGES=0"
-  fi
-
-  if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
-    printf '%s was not found. Install Python 3.11 or set PYTHON_BIN.\n' "${PYTHON_BIN}" >&2
-    exit 2
-  fi
-
-  log "Creating virtual environment: ${VENV_DIR}"
-  "${PYTHON_BIN}" -m venv "${VENV_DIR}"
-  # shellcheck disable=SC1090
-  source "${VENV_DIR}/bin/activate"
-
-  log "Upgrading pip tooling"
-  python -m pip install --upgrade pip setuptools wheel
-
-  install_torch
-
-  log "Installing project requirements"
-  CMAKE_ARGS="-DDLIB_USE_CUDA=OFF" python -m pip install -r requirements.txt
-  python -m pip install "typing-extensions>=4.14,<5"
-
+verify_python_stack() {
   log "Verifying Python, PyTorch, CUDA, TensorFlow, and package imports"
   python - <<'PY'
 import sys
@@ -133,12 +196,20 @@ if torch.cuda.is_available():
     print("total_vram_gb", round(props.total_memory / (1024 ** 3), 2))
 print("tensorflow", tf.__version__)
 PY
+}
 
-  log "Done"
+print_activation_instructions() {
   cat <<EOF
 
+Done.
+
 Activate this environment with:
-  source ${VENV_DIR}/bin/activate
+  source ${ENV_PATH}/bin/activate
+
+If this was created by micromamba and normal activation does not work:
+  export MAMBA_ROOT_PREFIX="${MICROMAMBA_ROOT_PREFIX}"
+  eval "\$(${MICROMAMBA_BIN} shell hook -s bash)"
+  micromamba activate "${ENV_PATH}"
 
 Run the A6000 profile:
   python -m geometric_v1.pipeline --config linux-gpu/pipeline.json
@@ -146,6 +217,30 @@ Run the A6000 profile:
   python -m geometric_v1.batch_brute_force --config linux-gpu/batch_brute.json
 
 EOF
+}
+
+main() {
+  cd "${REPO_ROOT}"
+  log "Repository root: ${REPO_ROOT}"
+  verify_gpu
+
+  if python_bin="$(find_python311)"; then
+    log "Using Python 3.11: ${python_bin}"
+    create_venv "${python_bin}"
+  elif [[ "${USE_MICROMAMBA_IF_NEEDED}" == "1" ]]; then
+    log "Python 3.11 was not found. Creating a no-root micromamba Python 3.11 environment."
+    create_micromamba_env
+  else
+    die "Python 3.11 was not found and USE_MICROMAMBA_IF_NEEDED=0."
+  fi
+
+  log "Upgrading pip tooling"
+  python -m pip install --upgrade pip setuptools wheel
+
+  install_torch
+  install_requirements
+  verify_python_stack
+  print_activation_instructions
 }
 
 main "$@"

@@ -20,7 +20,10 @@ linux-gpu/
 - NVIDIA RTX A6000-class GPU with a working NVIDIA driver.
 - `nvidia-smi` works before installing project dependencies.
 - You are running from the repository root.
-- Python 3.11 is used for this project.
+- You do not need root access.
+- You do not need `sudo`.
+- You do not need `apt`.
+- Python 3.11 is used for this project. If Python 3.11 is missing, the install script can create a local Python 3.11 environment through micromamba in your home directory.
 
 The A6000 has 48 GB VRAM, so the configs in this folder use a larger diffusion size than the laptop defaults while still avoiding aggressive multi-combo GPU parallelism.
 
@@ -34,13 +37,15 @@ bash linux-gpu/install_linux_a6000.sh
 
 The script will:
 
-1. Install Ubuntu apt packages needed for Python builds, OpenCV runtime libraries, CMake, and `dlib`.
-2. Install Python 3.11 if it is missing.
-3. Create `.venv-linux-gpu`.
-4. Install CUDA-enabled PyTorch.
-5. Install `requirements.txt`.
+1. Use an existing Python 3.11 if available.
+2. If Python 3.11 is missing, download micromamba into `~/.local/bin` and create a local Python 3.11 environment.
+3. Create or reuse `.venv-linux-gpu`.
+4. Install CUDA-enabled PyTorch with pip.
+5. Install `requirements.txt` with pip.
 6. Install the final `typing-extensions` override needed by PyTorch.
 7. Verify PyTorch CUDA visibility and TensorFlow import.
+
+The script does not run `sudo`, `apt`, or any root-level install command.
 
 Default PyTorch wheel target:
 
@@ -54,22 +59,47 @@ Override examples:
 PYTORCH_CUDA=cu126 bash linux-gpu/install_linux_a6000.sh
 PYTORCH_CUDA=cu118 bash linux-gpu/install_linux_a6000.sh
 SKIP_TORCH=1 bash linux-gpu/install_linux_a6000.sh
-INSTALL_SYSTEM_PACKAGES=0 bash linux-gpu/install_linux_a6000.sh
+INSTALL_DLIB=0 bash linux-gpu/install_linux_a6000.sh
+USE_MICROMAMBA_IF_NEEDED=0 bash linux-gpu/install_linux_a6000.sh
 ```
 
 Use `SKIP_TORCH=1` if your server image already has a known-good CUDA PyTorch build.
+Use `INSTALL_DLIB=0` only if `dlib` fails to build and you are willing to disable the `Dlib` DeepFace model in JSON.
 
-## Manual Install
+## Manual No-Root Install With Existing Python 3.11
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y \
-  build-essential cmake curl git wget pkg-config \
-  libgl1 libglib2.0-0 libhdf5-dev libsm6 libxext6 libxrender1 \
-  python3.11 python3.11-dev python3.11-venv
-
 python3.11 -m venv .venv-linux-gpu
 source .venv-linux-gpu/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+CMAKE_ARGS="-DDLIB_USE_CUDA=OFF" python -m pip install -r requirements.txt
+python -m pip install "typing-extensions>=4.14,<5"
+```
+
+If `python3.11 -m venv` fails because the server Python was built without venv support, run the script normally and let it use micromamba:
+
+```bash
+bash linux-gpu/install_linux_a6000.sh
+```
+
+## Manual No-Root Install With Micromamba
+
+Use this if the server does not have Python 3.11:
+
+```bash
+mkdir -p ~/.local/bin
+curl -L https://micro.mamba.pm/api/micromamba/linux-64/latest -o /tmp/micromamba.tar.bz2
+tar -xjf /tmp/micromamba.tar.bz2 -C /tmp
+mv /tmp/bin/micromamba ~/.local/bin/micromamba
+chmod +x ~/.local/bin/micromamba
+
+export MAMBA_ROOT_PREFIX="$HOME/.local/micromamba"
+eval "$($HOME/.local/bin/micromamba shell hook -s bash)"
+micromamba create -y -p "$PWD/.venv-linux-gpu" -c conda-forge \
+  python=3.11 pip setuptools wheel cmake make c-compiler cxx-compiler pkg-config libstdcxx-ng libgcc-ng
+micromamba activate "$PWD/.venv-linux-gpu"
+
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 CMAKE_ARGS="-DDLIB_USE_CUDA=OFF" python -m pip install -r requirements.txt
@@ -133,13 +163,31 @@ http://127.0.0.1:7860
 
 ## Driver Notes
 
-The script does not install or replace NVIDIA drivers. On managed GPU servers, the driver is usually already installed by the image/provider. Check first:
+The script does not install or replace NVIDIA drivers because that requires admin access. On managed GPU servers, the driver is usually already installed by the image/provider. Check first:
 
 ```bash
 nvidia-smi
 ```
 
 If `nvidia-smi` fails, fix the NVIDIA driver before installing Python dependencies.
+
+## If `dlib` Fails Without Root
+
+`dlib` is the dependency most likely to fail on no-root servers because it needs compiler and CMake tooling. The installer tries to handle this by using either the existing environment or a micromamba environment with local build tools.
+
+If it still fails, use:
+
+```bash
+INSTALL_DLIB=0 bash linux-gpu/install_linux_a6000.sh
+```
+
+Then edit `linux-gpu/pipeline.json` and set:
+
+```json
+"Dlib": false
+```
+
+All other DeepFace models can still run.
 
 ## Why Batch Parallelism Defaults To 1
 
