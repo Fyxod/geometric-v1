@@ -7,17 +7,10 @@ from typing import Any
 
 
 DEFAULT_DEEPFACE_MODELS = {
-    "VGG-Face": True,
+    "SFace": True,
+    "OpenFace": True,
     "Facenet": True,
     "Facenet512": True,
-    "OpenFace": True,
-    "DeepFace": True,
-    "DeepID": True,
-    "ArcFace": True,
-    "Dlib": True,
-    "SFace": True,
-    "GhostFaceNet": True,
-    "Buffalo_L": True,
 }
 
 
@@ -217,7 +210,12 @@ def _diffusion_from_dict(values: dict[str, Any], base_seed: int) -> DiffusionCon
 
 def _deepface_from_dict(values: dict[str, Any]) -> DeepFaceConfig:
     models = dict(DEFAULT_DEEPFACE_MODELS)
-    models.update({str(key): bool(value) for key, value in values.get("models", {}).items()})
+    configured_models = values.get("models", {})
+    if isinstance(configured_models, dict):
+        for key, value in configured_models.items():
+            model_name = str(key)
+            if model_name in models:
+                models[model_name] = bool(value)
     workers_value = values.get("workers", "auto")
     workers: int | str
     if isinstance(workers_value, int):

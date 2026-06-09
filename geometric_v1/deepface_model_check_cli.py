@@ -9,7 +9,7 @@ from .samples import ensure_sample_images
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run every DeepFace model on generated sample images")
+    parser = argparse.ArgumentParser(description="Run supported DeepFace models on generated sample images")
     parser.add_argument("--output", type=Path, default=Path("output/deepface_model_check.json"))
     args = parser.parse_args(argv)
 

@@ -93,17 +93,10 @@
     "align": false,
     "workers": "auto",
     "models": {
-      "VGG-Face": true,
-      "Facenet": true,
-      "Facenet512": true,
-      "OpenFace": true,
-      "DeepFace": true,
-      "DeepID": true,
-      "ArcFace": true,
-      "Dlib": true,
       "SFace": true,
-      "GhostFaceNet": true,
-      "Buffalo_L": true
+      "OpenFace": true,
+      "Facenet": true,
+      "Facenet512": true
     }
   }
 }

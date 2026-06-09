@@ -65,12 +65,10 @@ Override examples:
 PYTORCH_CUDA=cu126 bash linux-gpu/install_linux_a6000.sh
 PYTORCH_CUDA=cu118 bash linux-gpu/install_linux_a6000.sh
 SKIP_TORCH=1 bash linux-gpu/install_linux_a6000.sh
-INSTALL_DLIB=0 bash linux-gpu/install_linux_a6000.sh
 USE_MICROMAMBA_IF_NEEDED=0 bash linux-gpu/install_linux_a6000.sh
 ```
 
 Use `SKIP_TORCH=1` if your server image already has a known-good CUDA PyTorch build.
-Use `INSTALL_DLIB=0` only if `dlib` fails to build and you are willing to disable the `Dlib` DeepFace model in JSON.
 
 ## Manual No-Root Install With Existing Python 3.11
 
@@ -79,7 +77,7 @@ python3.11 -m venv .venv-linux-gpu
 source .venv-linux-gpu/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-CMAKE_ARGS="-DDLIB_USE_CUDA=OFF" python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
 python -m pip install "typing-extensions>=4.14,<5"
 python -m pip install -r requirements-ui.txt
 ```
@@ -104,12 +102,12 @@ chmod +x ~/.local/bin/micromamba
 export MAMBA_ROOT_PREFIX="$HOME/.local/micromamba"
 eval "$($HOME/.local/bin/micromamba shell hook -s bash)"
 micromamba create -y -p "$PWD/.venv-linux-gpu" -c conda-forge \
-  python=3.11 pip setuptools wheel cmake make c-compiler cxx-compiler pkg-config libstdcxx-ng libgcc-ng
+  python=3.11 pip setuptools wheel
 micromamba activate "$PWD/.venv-linux-gpu"
 
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-CMAKE_ARGS="-DDLIB_USE_CUDA=OFF" python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
 python -m pip install "typing-extensions>=4.14,<5"
 python -m pip install -r requirements-ui.txt
 ```
@@ -178,24 +176,6 @@ nvidia-smi
 ```
 
 If `nvidia-smi` fails, fix the NVIDIA driver before installing Python dependencies.
-
-## If `dlib` Fails Without Root
-
-`dlib` is the dependency most likely to fail on no-root servers because it needs compiler and CMake tooling. The installer tries to handle this by using either the existing environment or a micromamba environment with local build tools.
-
-If it still fails, use:
-
-```bash
-INSTALL_DLIB=0 bash linux-gpu/install_linux_a6000.sh
-```
-
-Then edit `linux-gpu/pipeline.json` and set:
-
-```json
-"Dlib": false
-```
-
-All other DeepFace models can still run.
 
 ## Why Batch Parallelism Defaults To 1
 

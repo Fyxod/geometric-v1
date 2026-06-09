@@ -31,8 +31,6 @@ Before installing Python packages on a new Windows laptop, install:
 
 - Python 3.11.x
 - Git
-- CMake
-- Visual Studio 2022 Build Tools with the `Desktop development with C++` workload
 - NVIDIA driver and CUDA-compatible PyTorch only if you want GPU diffusion
 
 ```powershell
@@ -40,16 +38,13 @@ cd path\to\geometric-v1
 python -m venv .venv --system-site-packages
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-$env:CMAKE_ARGS="-DDLIB_USE_CUDA=OFF"
 # Install the correct PyTorch wheel for your CPU/GPU from https://pytorch.org/get-started/locally/ here.
 python -m pip install -r requirements.txt
 python -m pip install "typing-extensions>=4.14,<5"
 python -m pip install -r requirements-ui.txt
 ```
 
-The `CMAKE_ARGS` line keeps `dlib` on a CPU-only build path. Without it, dlib may try to compile against a partial CUDA toolchain and fail on Windows.
-
-This project pins `numpy>=1.22,<=1.24.3` because TensorFlow 2.12.1 declares that exact compatible range. TensorFlow 2.12.1 is intentional because the DeepFace model named `DeepFace` needs `LocallyConnected2D`, which is missing from newer TensorFlow releases. PyTorch needs a newer `typing-extensions`, so the final `typing-extensions` command is intentional even though TensorFlow's package metadata asks for an older version. This exact combination was tested locally with CUDA PyTorch and all DeepFace recognition models.
+This project pins `numpy>=1.22,<=1.24.3` because TensorFlow 2.12.1 declares that exact compatible range. TensorFlow 2.12.1 is kept for DeepFace compatibility. PyTorch needs a newer `typing-extensions`, so the final `typing-extensions` command is intentional even though TensorFlow's package metadata asks for an older version.
 
 `albumentations` is pinned to `1.3.1` because `albumentations` 2.x requires `numpy>=1.24.4`, which conflicts with TensorFlow 2.12.1's `numpy<=1.24.3` requirement.
 
@@ -72,7 +67,7 @@ Verify the install:
 python -c "import numpy, tensorflow as tf, torch; print('numpy', numpy.__version__); print('tensorflow', tf.__version__); print('torch', torch.__version__, 'cuda', torch.cuda.is_available())"
 ```
 
-Expected NumPy on this stack is `1.24.3` or lower within the pinned range. If `dlib` fails during setup, install or repair Visual Studio Build Tools and CMake, reopen PowerShell, set `CMAKE_ARGS` again, and rerun `python -m pip install -r requirements.txt`.
+Expected NumPy on this stack is `1.24.3` or lower within the pinned range.
 
 ## Project Layout
 
@@ -441,17 +436,10 @@ sample_jsons/sample_batch_brute.json
     "align": false,
     "workers": "auto",
     "models": {
-      "VGG-Face": true,
-      "Facenet": true,
-      "Facenet512": true,
-      "OpenFace": true,
-      "DeepFace": true,
-      "DeepID": true,
-      "ArcFace": true,
-      "Dlib": true,
       "SFace": true,
-      "GhostFaceNet": true,
-      "Buffalo_L": true
+      "OpenFace": true,
+      "Facenet": true,
+      "Facenet512": true
     }
   }
 }
@@ -489,12 +477,10 @@ Diffusion device notes:
 
 DeepFace model notes:
 
-- All DeepFace recognition model booleans are enabled by default because this environment was set up and tested with all of them.
+- Only `SFace`, `OpenFace`, `Facenet`, and `Facenet512` are supported by this project. Other DeepFace model names in older configs are ignored.
 - `workers` can be `"auto"` or an integer. It is only used when the full pipeline resolves diffusion to CUDA. CPU-mode runs and standalone DeepFace commands stay sequential.
 - In `"auto"` mode, the worker count is capped at 3 and also limited by enabled model count, CPU count, and available RAM. The chosen value is recorded under `deepface.execution.resolved_workers` in `report.json`.
-- The project caches known DeepFace weight files into `~\.deepface\weights` before each model runs. The first all-model run can download several large files.
-- `Dlib` requires a local C++ build toolchain. On this machine it built successfully with `CMAKE_ARGS="-DDLIB_USE_CUDA=OFF"`.
-- `Buffalo_L` requires `insightface`, `onnxruntime`, and its Google Drive ONNX weight. These are included in setup and were tested.
+- The project caches known DeepFace weight files into `~\.deepface\weights` before each model runs. The first run can download the four supported model weights.
 - Each enabled model records either a comparison result or an error in `report.json`.
 
 ## Independent Commands
@@ -547,11 +533,10 @@ Check DeepFace model loading on generated sample images:
 python run_deepface_model_check.py --output output\deepface_model_check.json
 ```
 
-The local all-model check passed for:
+The local supported-model check covers:
 
 ```text
-VGG-Face, Facenet, Facenet512, OpenFace, DeepFace, DeepID,
-ArcFace, Dlib, SFace, GhostFaceNet, Buffalo_L
+SFace, OpenFace, Facenet, Facenet512
 ```
 
 ## Match Percentage

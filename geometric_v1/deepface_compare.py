@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import time
-import bz2
 import os
-import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,15 +18,17 @@ ALL_DEEPFACE_MODELS = tuple(DEFAULT_DEEPFACE_MODELS.keys())
 class WeightSpec:
     target: Path
     url: str | None = None
-    compression: str | None = None
-    gdrive_id: str | None = None
 
 
 WEIGHTS_DIR = Path.home() / ".deepface" / "weights"
 KNOWN_WEIGHT_URLS = {
-    "VGG-Face": WeightSpec(
-        WEIGHTS_DIR / "vgg_face_weights.h5",
-        url="https://github.com/serengil/deepface_models/releases/download/v1.0/vgg_face_weights.h5",
+    "SFace": WeightSpec(
+        WEIGHTS_DIR / "face_recognition_sface_2021dec.onnx",
+        url="https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
+    ),
+    "OpenFace": WeightSpec(
+        WEIGHTS_DIR / "openface_weights.h5",
+        url="https://github.com/serengil/deepface_models/releases/download/v1.0/openface_weights.h5",
     ),
     "Facenet": WeightSpec(
         WEIGHTS_DIR / "facenet_weights.h5",
@@ -37,40 +37,6 @@ KNOWN_WEIGHT_URLS = {
     "Facenet512": WeightSpec(
         WEIGHTS_DIR / "facenet512_weights.h5",
         url="https://github.com/serengil/deepface_models/releases/download/v1.0/facenet512_weights.h5",
-    ),
-    "OpenFace": WeightSpec(
-        WEIGHTS_DIR / "openface_weights.h5",
-        url="https://github.com/serengil/deepface_models/releases/download/v1.0/openface_weights.h5",
-    ),
-    "DeepFace": WeightSpec(
-        WEIGHTS_DIR / "VGGFace2_DeepFace_weights_val-0.9034.h5",
-        url="https://github.com/swghosh/DeepFace/releases/download/weights-vggface2-2d-aligned/VGGFace2_DeepFace_weights_val-0.9034.h5.zip",
-        compression="zip",
-    ),
-    "DeepID": WeightSpec(
-        WEIGHTS_DIR / "deepid_keras_weights.h5",
-        url="https://github.com/serengil/deepface_models/releases/download/v1.0/deepid_keras_weights.h5",
-    ),
-    "ArcFace": WeightSpec(
-        WEIGHTS_DIR / "arcface_weights.h5",
-        url="https://github.com/serengil/deepface_models/releases/download/v1.0/arcface_weights.h5",
-    ),
-    "Dlib": WeightSpec(
-        WEIGHTS_DIR / "dlib_face_recognition_resnet_model_v1.dat",
-        url="http://dlib.net/files/dlib_face_recognition_resnet_model_v1.dat.bz2",
-        compression="bz2",
-    ),
-    "SFace": WeightSpec(
-        WEIGHTS_DIR / "face_recognition_sface_2021dec.onnx",
-        url="https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
-    ),
-    "GhostFaceNet": WeightSpec(
-        WEIGHTS_DIR / "ghostfacenet_v1.h5",
-        url="https://github.com/HamadYA/GhostFaceNets/releases/download/v1.2/GhostFaceNet_W1.3_S1_ArcFace.h5",
-    ),
-    "Buffalo_L": WeightSpec(
-        WEIGHTS_DIR / "buffalo_l" / "webface_r50.onnx",
-        gdrive_id="1N0GL-8ehw_bz2eZQWz2b0A5XBdXdxZhg",
     ),
 }
 
@@ -89,33 +55,17 @@ def _ensure_known_weight(model_name: str) -> None:
         return
     spec.target.parent.mkdir(parents=True, exist_ok=True)
 
-    if spec.gdrive_id is not None:
-        import gdown
-
-        gdown.download(id=spec.gdrive_id, output=str(spec.target), quiet=False)
-        return
-
     if spec.url is None:
         return
-
-    download_path = spec.target
-    if spec.compression is not None:
-        download_path = spec.target.with_suffix(spec.target.suffix + f".{spec.compression}")
 
     import requests
 
     with requests.get(spec.url, stream=True, timeout=120) as response:
         response.raise_for_status()
-        with download_path.open("wb") as handle:
+        with spec.target.open("wb") as handle:
             for chunk in response.iter_content(chunk_size=1024 * 1024):
                 if chunk:
                     handle.write(chunk)
-
-    if spec.compression == "bz2":
-        spec.target.write_bytes(bz2.decompress(download_path.read_bytes()))
-    elif spec.compression == "zip":
-        with zipfile.ZipFile(download_path, "r") as archive:
-            archive.extractall(spec.target.parent)
 
 
 def _memory_gb() -> tuple[float | None, float | None]:
@@ -275,7 +225,11 @@ def compare_images(
     event_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     config = config or DeepFaceConfig()
-    selected_models = models if models is not None else config.models
+    raw_models = models if models is not None else config.models
+    selected_models = {
+        model_name: bool(raw_models.get(model_name, False))
+        for model_name in DEFAULT_DEEPFACE_MODELS
+    }
     workers, execution = resolve_deepface_workers(config, selected_models, allow_parallel)
     results: dict[str, Any] = {
         "image_a": str(image_a),

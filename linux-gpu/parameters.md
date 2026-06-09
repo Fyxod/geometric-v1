@@ -38,7 +38,7 @@ This file lists the intentional changes in `linux-gpu/*.json` compared with the 
 - `diffusion.models.flux2_klein.sigmas`: left as `null`.
 - `diffusion.models.flux2_klein.seed`: set to `42`.
 - `deepface.workers`: set to `3`.
-- All DeepFace model booleans remain `true`.
+- `deepface.models`: reduced to `SFace`, `OpenFace`, `Facenet`, and `Facenet512`, all set to `true`.
 
 Rationale: the A6000 profile now prefers FLUX.2 Klein because it supports image-to-image editing through Diffusers and fits comfortably on a 48 GB card. `max_size=1024`, `bfloat16`, and the model-card-style `4` denoising steps are a good first server profile while still leaving room for DeepFace and framework overhead. If both diffusion model blocks are enabled by accident, the project selects `flux2_klein` and never runs both models.
 

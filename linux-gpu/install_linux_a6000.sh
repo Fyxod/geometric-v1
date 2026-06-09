@@ -16,7 +16,6 @@ NO_VENV="${NO_VENV:-0}"
 USE_MICROMAMBA_IF_NEEDED="${USE_MICROMAMBA_IF_NEEDED:-1}"
 MICROMAMBA_BIN="${MICROMAMBA_BIN:-$HOME/.local/bin/micromamba}"
 MICROMAMBA_ROOT_PREFIX="${MICROMAMBA_ROOT_PREFIX:-$HOME/.local/micromamba}"
-INSTALL_DLIB="${INSTALL_DLIB:-1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -83,14 +82,7 @@ create_micromamba_env() {
       python=3.11 \
       pip \
       setuptools \
-      wheel \
-      cmake \
-      make \
-      c-compiler \
-      cxx-compiler \
-      pkg-config \
-      libstdcxx-ng \
-      libgcc-ng
+      wheel
   else
     log "Using existing environment: ${ENV_PATH}"
   fi
@@ -145,13 +137,11 @@ install_requirements() {
   if ! command -v git >/dev/null 2>&1; then
     die "git is required because requirements.txt installs the current Diffusers main branch for Flux2KleinPipeline."
   fi
-  if [[ "${INSTALL_DLIB}" == "1" ]]; then
-    if ! CMAKE_ARGS="-DDLIB_USE_CUDA=OFF" python -m pip install -r requirements.txt; then
-      cat >&2 <<'EOF'
+  if ! python -m pip install -r requirements.txt; then
+    cat >&2 <<'EOF'
 
-The dependency install failed. On no-root servers, the most common cause is dlib needing
-compiler/CMake pieces that are not available in the current environment, but pip resolver
-conflicts can also happen if package pins drift.
+The dependency install failed. On no-root servers, the most common cause is a pip
+resolver conflict or a server image with incompatible preinstalled packages.
 
 Options:
   1. Use the default micromamba fallback:
@@ -161,18 +151,8 @@ Options:
        git pull
        bash linux-gpu/install_linux_a6000.sh
 
-  3. If the error specifically mentions dlib, skip dlib and disable the Dlib DeepFace model in your JSON:
-       INSTALL_DLIB=0 bash linux-gpu/install_linux_a6000.sh
-
 EOF
-      exit 1
-    fi
-  else
-    log "INSTALL_DLIB=0, installing requirements without dlib"
-    tmp_req="$(mktemp)"
-    grep -v -E '^dlib([=<>!~ ]|$)' requirements.txt > "${tmp_req}"
-    python -m pip install -r "${tmp_req}"
-    rm -f "${tmp_req}"
+    exit 1
   fi
 
   python -m pip install "typing-extensions>=4.14,<5"
