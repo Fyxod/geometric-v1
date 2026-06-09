@@ -23,6 +23,7 @@ linux-gpu/
 - You do not need root access.
 - You do not need `sudo`.
 - You do not need `apt`.
+- `git` is available on the server path. The FLUX.2 Klein pipeline currently requires installing Diffusers from the Hugging Face GitHub branch.
 - Python 3.11 is used for this project. If Python 3.11 is missing, the install script can create a local Python 3.11 environment through micromamba in your home directory.
 
 The A6000 has 48 GB VRAM, so the configs in this folder use a larger diffusion size than the laptop defaults while still avoiding aggressive multi-combo GPU parallelism.
@@ -49,6 +50,8 @@ The script will:
 The script does not run `sudo`, `apt`, or any root-level install command.
 
 Dependency note: `albumentations` is pinned to `1.3.1` in the project requirements. Do not upgrade it to `2.x` while using `tensorflow==2.12.1`; `albumentations` 2.x requires `numpy>=1.24.4`, but TensorFlow 2.12.1 requires `numpy<=1.24.3`.
+
+FLUX.2 Klein note: `requirements.txt` installs Diffusers with `git+https://github.com/huggingface/diffusers.git` so `Flux2KleinPipeline` is available. If `git` is not installed on the managed server image, ask the cluster/admin team for a module or image that includes Git, or install the dependency from another environment that already has Git.
 
 Default PyTorch wheel target:
 

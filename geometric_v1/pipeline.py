@@ -10,7 +10,7 @@ from typing import Any
 
 from .config import load_pipeline_config
 from .deepface_compare import compare_images
-from .diffusion import edit_image, edit_images, resolve_device
+from .diffusion import edit_image, edit_images, resolve_device, selected_diffusion_model
 from .events import EventCallback, emit_event
 from .image_io import load_image, load_pil_image, save_image, save_pil
 from .perturbations import apply_perturbation_pipeline
@@ -44,7 +44,14 @@ def run_pipeline(config_path: Path, event_callback: EventCallback | None = None)
         emit_event(event_callback, "perturbation_completed", output_path=str(perturbed_path))
         emit_event(event_callback, "image_written", name="perturbed", path=str(perturbed_path))
 
-        diffusion_report = {**asdict(config.diffusion), "resolved_device": resolved_device, "execution_mode": "sequential"}
+        selected_model = selected_diffusion_model(config.diffusion)
+        diffusion_report = {
+            **asdict(config.diffusion),
+            "used_model": selected_model["name"],
+            "used_model_id": selected_model["model_id"],
+            "resolved_device": resolved_device,
+            "execution_mode": "sequential",
+        }
         perturbed_pil = load_pil_image(perturbed_path)
         emit_event(
             event_callback,
@@ -52,6 +59,8 @@ def run_pipeline(config_path: Path, event_callback: EventCallback | None = None)
             mode="batched" if use_gpu_optimizations else "sequential",
             prompt=config.prompt,
             device=resolved_device,
+            selected_model=selected_model["name"],
+            model_id=selected_model["model_id"],
         )
         if use_gpu_optimizations:
             try:

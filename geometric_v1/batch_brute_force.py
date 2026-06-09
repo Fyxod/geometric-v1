@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .brute_force import load_brute_config, run_brute_force
+from .config import load_pipeline_config
 from .events import EventCallback, StopCallback, emit_event, is_stop_requested, with_event_context
 
 
@@ -166,6 +167,26 @@ def _write_combo_configs(
     return combo_brute_path
 
 
+def _diffusion_report_from_pipeline_config(pipeline_config: Path) -> dict[str, str]:
+    diffusion = load_pipeline_config(pipeline_config).diffusion
+    return {
+        "selected_model": diffusion.selected_model,
+        "selected_model_id": diffusion.selected_model_id,
+        "used_model": diffusion.selected_model,
+        "used_model_id": diffusion.selected_model_id,
+    }
+
+
+def _diffusion_report_from_brute_report(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        diffusion = _read_json(path).get("diffusion")
+    except Exception:
+        return None
+    return diffusion if isinstance(diffusion, dict) else None
+
+
 def _run_combo(
     plan: ComboPlan,
     event_callback: EventCallback | None = None,
@@ -205,6 +226,7 @@ def _run_combo(
         "prompt": plan.prompt,
         "output_dir": str(plan.combo_dir),
         "brute_report": str(plan.combo_dir / "brute_report.json"),
+        "diffusion": report.get("diffusion"),
         "successful": int(summary.get("successful", 0)),
         "unsuccessful": int(summary.get("unsuccessful", 0)),
         "failures": int(summary.get("failures", 0)),
@@ -242,6 +264,7 @@ def _skipped_record(plan: ComboPlan) -> dict[str, Any]:
         "prompt": plan.prompt,
         "output_dir": str(plan.combo_dir),
         "brute_report": str(brute_report_path),
+        "diffusion": _diffusion_report_from_brute_report(brute_report_path),
         "successful": successful,
         "unsuccessful": unsuccessful,
         "failures": failures,
@@ -258,6 +281,7 @@ def _failure_record(plan: ComboPlan, exc: Exception) -> dict[str, Any]:
         "prompt": plan.prompt,
         "output_dir": str(plan.combo_dir),
         "brute_report": str(plan.combo_dir / "brute_report.json"),
+        "diffusion": None,
         "successful": 0,
         "unsuccessful": 0,
         "failures": 0,
@@ -306,6 +330,7 @@ def run_batch_brute_force(
     brute_config = load_brute_config(config.brute_config)
     brute_data = _read_json(config.brute_config)
     pipeline_config_path = config.pipeline_config or brute_config.pipeline_config
+    diffusion_report = _diffusion_report_from_pipeline_config(pipeline_config_path)
     pipeline_data = _read_json(pipeline_config_path)
     images = _find_images(config)
     total_attempts = len(images) * len(config.prompts) * brute_config.trials
@@ -323,6 +348,7 @@ def run_batch_brute_force(
         "skip_existing": config.skip_existing,
         "overwrite_existing": config.overwrite_existing,
         "parallel_combinations": config.parallel_combinations,
+        "diffusion": diffusion_report,
         "total_images": len(images),
         "total_prompts": len(config.prompts),
         "total_planned_brute_attempts": total_attempts,

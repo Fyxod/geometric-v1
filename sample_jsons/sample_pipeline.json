@@ -3,9 +3,11 @@
     "purpose": "Example pipeline.json. pipeline.json is the source of truth for the input image, prompt, diffusion settings, CPU/GPU flag, DeepFace enabled models, and which perturbation methods are enabled.",
     "input": "Image path. Relative paths are resolved from the folder containing this JSON.",
     "output_dir": "Folder where one normal pipeline run writes original.png, perturbed.png, diffused images, and report.json.",
-    "prompt": "The InstructPix2Pix prompt applied to both original and perturbed images.",
+    "prompt": "The selected diffusion model prompt applied to both original and perturbed images.",
     "seed": "Base seed used by perturbations and diffusion unless overridden.",
     "diffusion.cpu": "true forces CPU. false with device auto uses CUDA when PyTorch can see it.",
+    "diffusion.models": "Enable exactly one model block for normal use. If both instruct_pix2pix and flux2_klein are enabled, flux2_klein is selected and instruct_pix2pix is ignored.",
+    "flux2_klein": "FLUX.2 Klein options include num_inference_steps, guidance_scale, max_size, height, width, max_sequence_length, text_encoder_out_layers, torch_dtype, cpu_offload, sigmas, and seed.",
     "deepface.workers": "auto or integer. Only used by the full pipeline when diffusion resolves to CUDA; CPU runs stay sequential."
   },
   "input": "samples/image.png",
@@ -53,14 +55,35 @@
     }
   ],
   "diffusion": {
-    "model_id": "timbrooks/instruct-pix2pix",
     "cpu": false,
     "device": "auto",
     "gpu_index": 0,
-    "num_inference_steps": 10,
-    "guidance_scale": 7.5,
-    "image_guidance_scale": 1.0,
-    "max_size": 512
+    "models": {
+      "instruct_pix2pix": {
+        "enabled": false,
+        "model_id": "timbrooks/instruct-pix2pix",
+        "num_inference_steps": 10,
+        "guidance_scale": 7.5,
+        "image_guidance_scale": 1.0,
+        "max_size": 512,
+        "seed": 15
+      },
+      "flux2_klein": {
+        "enabled": true,
+        "model_id": "black-forest-labs/FLUX.2-klein-4B",
+        "num_inference_steps": 4,
+        "guidance_scale": 1.0,
+        "max_size": 768,
+        "height": null,
+        "width": null,
+        "max_sequence_length": 512,
+        "text_encoder_out_layers": [9, 18, 27],
+        "torch_dtype": "bfloat16",
+        "cpu_offload": false,
+        "sigmas": null,
+        "seed": 15
+      }
+    }
   },
   "deepface": {
     "enabled": true,

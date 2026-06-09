@@ -50,15 +50,35 @@
     }
   ],
   "diffusion": {
-    "model_id": "timbrooks/instruct-pix2pix",
     "cpu": false,
     "device": "auto",
     "gpu_index": 0,
-    "num_inference_steps": 20,
-    "guidance_scale": 7.5,
-    "image_guidance_scale": 1.0,
-    "max_size": 768,
-    "seed": 42
+    "models": {
+      "instruct_pix2pix": {
+        "enabled": false,
+        "model_id": "timbrooks/instruct-pix2pix",
+        "num_inference_steps": 20,
+        "guidance_scale": 7.5,
+        "image_guidance_scale": 1.0,
+        "max_size": 768,
+        "seed": 42
+      },
+      "flux2_klein": {
+        "enabled": true,
+        "model_id": "black-forest-labs/FLUX.2-klein-4B",
+        "num_inference_steps": 4,
+        "guidance_scale": 1.0,
+        "max_size": 1024,
+        "height": null,
+        "width": null,
+        "max_sequence_length": 512,
+        "text_encoder_out_layers": [9, 18, 27],
+        "torch_dtype": "bfloat16",
+        "cpu_offload": false,
+        "sigmas": null,
+        "seed": 42
+      }
+    }
   },
   "deepface": {
     "enabled": true,

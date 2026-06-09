@@ -13,7 +13,7 @@ dependencies = [
   "scipy>=1.10",
   "opencv-python>=4.8,<4.9",
   "opencv-python-headless>=4.8,<4.9",
-  "diffusers>=0.35.1",
+  "diffusers @ git+https://github.com/huggingface/diffusers.git",
   "transformers>=4.41",
   "accelerate>=0.30",
   "safetensors>=0.4",

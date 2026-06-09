@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .config import load_pipeline_config
 from .events import EventCallback, StopCallback, emit_event, is_stop_requested, with_event_context
 from .pipeline import run_pipeline
 
@@ -170,6 +171,11 @@ def _make_sampled_pipeline(
 
     diffusion = sampled.setdefault("diffusion", {})
     diffusion["seed"] = attempt_seed
+    models = diffusion.get("models")
+    if isinstance(models, dict):
+        for model_name in ("instruct_pix2pix", "flux2_klein"):
+            if isinstance(models.get(model_name), dict):
+                models[model_name]["seed"] = attempt_seed
 
     enabled_index = 0
     for step in sampled.get("perturbations", []):
@@ -181,6 +187,28 @@ def _make_sampled_pipeline(
         for field, bounds in ranges.get(method, {}).items():
             step[field] = _sample_parameter(rng, field, bounds)
     return sampled
+
+
+def _diffusion_report_from_pipeline_config(pipeline_config: Path) -> dict[str, str]:
+    diffusion = load_pipeline_config(pipeline_config).diffusion
+    return {
+        "selected_model": diffusion.selected_model,
+        "selected_model_id": diffusion.selected_model_id,
+        "used_model": diffusion.selected_model,
+        "used_model_id": diffusion.selected_model_id,
+    }
+
+
+def _diffusion_report_from_pipeline_report(report: dict[str, Any]) -> dict[str, Any] | None:
+    diffusion = report.get("diffusion")
+    if not isinstance(diffusion, dict):
+        return None
+    return {
+        "selected_model": diffusion.get("selected_model") or diffusion.get("used_model"),
+        "selected_model_id": diffusion.get("selected_model_id") or diffusion.get("used_model_id"),
+        "used_model": diffusion.get("used_model") or diffusion.get("selected_model"),
+        "used_model_id": diffusion.get("used_model_id") or diffusion.get("selected_model_id"),
+    }
 
 
 def _deepface_score(report: dict[str, Any]) -> tuple[float | None, int, list[str]]:
@@ -263,6 +291,7 @@ def _completed_attempt_record(folder: Path, attempt: int) -> dict[str, Any] | No
         "counted_models": int(brute_force.get("counted_models", 0) or 0),
         "errored_models": brute_force.get("errored_models", []),
         "pipeline_error": brute_force.get("pipeline_error"),
+        "diffusion": _diffusion_report_from_pipeline_report(report),
         "saved": True,
         "folder": str(folder),
         "action": "skipped",
@@ -327,6 +356,7 @@ def _error_report(
     staging_dir: Path,
     attempt: int,
     attempt_seed: int,
+    diffusion_report: dict[str, str],
     exc: Exception,
 ) -> dict[str, Any]:
     return {
@@ -337,6 +367,7 @@ def _error_report(
             "report": str(staging_dir / "report.json"),
         },
         "deepface": None,
+        "diffusion": diffusion_report,
         "brute_force": {
             "attempt": attempt,
             "attempt_seed": attempt_seed,
@@ -404,6 +435,7 @@ def run_brute_force(
     if attempt_seeds is not None and len(attempt_seeds) != config.trials:
         raise ValueError("attempt_seeds length must match brute trials")
     pipeline_data = _read_json(config.pipeline_config)
+    diffusion_report = _diffusion_report_from_pipeline_config(config.pipeline_config)
     parameter_seed = config.seed if rng_seed is None else rng_seed
 
     successful_dir = config.output_dir / "successful"
@@ -437,6 +469,7 @@ def run_brute_force(
         "attempt_seed_range": list(config.attempt_seed_range),
         "resume": config.resume,
         "save_unsuccessful": config.save_unsuccessful,
+        "diffusion": diffusion_report,
         "attempts": [],
     }
     stopped = False
@@ -533,7 +566,15 @@ def run_brute_force(
             )
         except Exception as exc:  # Keep going so one bad sample does not stop the search.
             pipeline_error = f"{type(exc).__name__}: {exc}"
-            report = _error_report(config, sampled_config_path, staging_dir, attempt, attempt_seed, exc)
+            report = _error_report(
+                config,
+                sampled_config_path,
+                staging_dir,
+                attempt,
+                attempt_seed,
+                diffusion_report,
+                exc,
+            )
             emit_event(
                 event_callback,
                 "brute_attempt_failed",
@@ -583,6 +624,7 @@ def run_brute_force(
             "counted_models": counted_models,
             "errored_models": errored_models,
             "pipeline_error": pipeline_error,
+            "diffusion": _diffusion_report_from_pipeline_report(report),
             "saved": True,
             "folder": str(final_dir),
             "action": action,

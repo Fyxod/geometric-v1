@@ -4,7 +4,7 @@
 
 1. Read one input image and a text prompt from `pipeline.json`.
 2. Build `perturbed.png` by applying enabled geometric/frequency perturbations in order.
-3. Send both `original.png` and `perturbed.png` through InstructPix2Pix with the same prompt.
+3. Send both `original.png` and `perturbed.png` through the enabled diffusion model with the same prompt.
 4. Compare `original_diffused.png` and `perturbed_diffused.png` with enabled DeepFace models.
 5. Write all four images plus `report.json` to the configured output folder.
 
@@ -52,6 +52,8 @@ The `CMAKE_ARGS` line keeps `dlib` on a CPU-only build path. Without it, dlib ma
 This project pins `numpy>=1.22,<=1.24.3` because TensorFlow 2.12.1 declares that exact compatible range. TensorFlow 2.12.1 is intentional because the DeepFace model named `DeepFace` needs `LocallyConnected2D`, which is missing from newer TensorFlow releases. PyTorch needs a newer `typing-extensions`, so the final `typing-extensions` command is intentional even though TensorFlow's package metadata asks for an older version. This exact combination was tested locally with CUDA PyTorch and all DeepFace recognition models.
 
 `albumentations` is pinned to `1.3.1` because `albumentations` 2.x requires `numpy>=1.24.4`, which conflicts with TensorFlow 2.12.1's `numpy<=1.24.3` requirement.
+
+`requirements.txt` installs Diffusers from the current Hugging Face GitHub branch because `Flux2KleinPipeline` is not available in older stable Diffusers releases. That means Git must be available before running `python -m pip install -r requirements.txt`.
 
 The local dashboard adds `fastapi` and `uvicorn[standard]`. They live in `requirements-ui.txt` so pip does not try to solve TensorFlow's older `typing-extensions` metadata and FastAPI's newer `typing-extensions` metadata in the same transaction. Install core requirements first, then the final `typing-extensions` override, then UI requirements.
 
@@ -401,14 +403,35 @@ sample_jsons/sample_batch_brute.json
     }
   ],
   "diffusion": {
-    "model_id": "timbrooks/instruct-pix2pix",
     "cpu": false,
     "device": "auto",
     "gpu_index": 0,
-    "num_inference_steps": 10,
-    "guidance_scale": 7.5,
-    "image_guidance_scale": 1.0,
-    "max_size": 512
+    "models": {
+      "instruct_pix2pix": {
+        "enabled": false,
+        "model_id": "timbrooks/instruct-pix2pix",
+        "num_inference_steps": 10,
+        "guidance_scale": 7.5,
+        "image_guidance_scale": 1.0,
+        "max_size": 512,
+        "seed": 7
+      },
+      "flux2_klein": {
+        "enabled": true,
+        "model_id": "black-forest-labs/FLUX.2-klein-4B",
+        "num_inference_steps": 4,
+        "guidance_scale": 1.0,
+        "max_size": 768,
+        "height": null,
+        "width": null,
+        "max_sequence_length": 512,
+        "text_encoder_out_layers": [9, 18, 27],
+        "torch_dtype": "bfloat16",
+        "cpu_offload": false,
+        "sigmas": null,
+        "seed": 7
+      }
+    }
   },
   "deepface": {
     "enabled": true,
@@ -434,9 +457,31 @@ sample_jsons/sample_batch_brute.json
 }
 ```
 
+Diffusion model selection:
+
+- `pipeline.json` contains two diffusion model blocks: `instruct_pix2pix` and `flux2_klein`.
+- Each model block has an `enabled` boolean.
+- If only one model is enabled, that model runs.
+- If both are enabled, `flux2_klein` runs and `instruct_pix2pix` is ignored.
+- The pipeline never runs both diffusion models in the same run.
+- Pipeline, diffuse-only, brute-force, and batch brute-force reports write `diffusion.used_model`, `diffusion.used_model_id`, `diffusion.selected_model`, and `diffusion.selected_model_id`.
+
+FLUX.2 Klein tunable options:
+
+- `num_inference_steps`: denoising steps. The model card example uses `4`.
+- `guidance_scale`: prompt guidance. The model card example uses `1.0`.
+- `max_size`: used by this project to resize the input image when `height` and `width` are not set.
+- `height` and `width`: optional explicit output canvas size, rounded down to multiples of 8.
+- `max_sequence_length`: prompt token budget passed to Diffusers.
+- `text_encoder_out_layers`: encoder layers used by the Flux2Klein pipeline.
+- `torch_dtype`: `bfloat16`, `float16`, or `float32`; CUDA defaults should generally use `bfloat16`.
+- `cpu_offload`: enables Diffusers model CPU offload when CUDA is selected.
+- `sigmas`: optional custom scheduler sigma list. Leave `null` for normal use.
+- `seed`: generator seed.
+
 Diffusion device notes:
 
-- Set `"cpu": true` to force InstructPix2Pix onto CPU even when CUDA is available.
+- Set `"cpu": true` to force diffusion onto CPU even when CUDA is available.
 - Keep `"cpu": false` with `"device": "auto"` to use CUDA when PyTorch can see it, otherwise CPU.
 - The pipeline writes `diffusion.resolved_device` into `report.json` so you can confirm the actual device used.
 - GPU-mode pipeline runs use batched diffusion for `original.png` and `perturbed.png`. CPU-mode runs keep the old sequential diffusion path.
@@ -522,6 +567,8 @@ That makes `100%` mean identical embedding distance, about `50%` mean the model 
 ## References
 
 - Hugging Face diffusers InstructPix2Pix docs: <https://huggingface.co/docs/diffusers/api/pipelines/pix2pix>
+- FLUX.2 Klein model card: <https://huggingface.co/black-forest-labs/FLUX.2-klein-4B>
+- Hugging Face Diffusers Flux2 docs: <https://huggingface.co/docs/diffusers/main/api/pipelines/flux2>
 - DeepFace verify/model docs: <https://github.com/serengil/deepface/blob/master/deepface/DeepFace.py>
 - TensorFlow pip install notes: <https://www.tensorflow.org/install/pip>
 - PyTorch install selector: <https://pytorch.org/get-started/>

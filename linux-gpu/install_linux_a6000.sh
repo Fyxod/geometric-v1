@@ -142,6 +142,9 @@ install_torch() {
 
 install_requirements() {
   log "Installing core project requirements with pip"
+  if ! command -v git >/dev/null 2>&1; then
+    die "git is required because requirements.txt installs the current Diffusers main branch for Flux2KleinPipeline."
+  fi
   if [[ "${INSTALL_DLIB}" == "1" ]]; then
     if ! CMAKE_ARGS="-DDLIB_USE_CUDA=OFF" python -m pip install -r requirements.txt; then
       cat >&2 <<'EOF'

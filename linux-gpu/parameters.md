@@ -24,13 +24,23 @@ This file lists the intentional changes in `linux-gpu/*.json` compared with the 
 - `diffusion.cpu`: set to `false`.
 - `diffusion.device`: kept as `auto` so PyTorch chooses CUDA when available.
 - `diffusion.gpu_index`: set to `0`, which is typical on a single-GPU server.
-- `diffusion.num_inference_steps`: increased to `20`.
-- `diffusion.max_size`: increased to `768`.
-- `diffusion.seed`: set to `42`.
+- `diffusion.models.instruct_pix2pix.enabled`: set to `false`.
+- `diffusion.models.flux2_klein.enabled`: set to `true`.
+- `diffusion.models.flux2_klein.model_id`: set to `black-forest-labs/FLUX.2-klein-4B`.
+- `diffusion.models.flux2_klein.num_inference_steps`: set to `4`.
+- `diffusion.models.flux2_klein.guidance_scale`: set to `1.0`.
+- `diffusion.models.flux2_klein.max_size`: set to `1024`.
+- `diffusion.models.flux2_klein.height` and `width`: left as `null`, so the project resizes from the input while respecting `max_size`.
+- `diffusion.models.flux2_klein.max_sequence_length`: set to `512`.
+- `diffusion.models.flux2_klein.text_encoder_out_layers`: set to `[9, 18, 27]`.
+- `diffusion.models.flux2_klein.torch_dtype`: set to `bfloat16`.
+- `diffusion.models.flux2_klein.cpu_offload`: set to `false`.
+- `diffusion.models.flux2_klein.sigmas`: left as `null`.
+- `diffusion.models.flux2_klein.seed`: set to `42`.
 - `deepface.workers`: set to `3`.
 - All DeepFace model booleans remain `true`.
 
-Rationale: `max_size=768` and `20` diffusion steps are much more comfortable on a 48 GB A6000 than on the laptop profile, while still leaving room for DeepFace and framework overhead. I did not set `max_size=1024` by default because InstructPix2Pix memory use can jump sharply with resolution, especially when running brute force repeatedly.
+Rationale: the A6000 profile now prefers FLUX.2 Klein because it supports image-to-image editing through Diffusers and fits comfortably on a 48 GB card. `max_size=1024`, `bfloat16`, and the model-card-style `4` denoising steps are a good first server profile while still leaving room for DeepFace and framework overhead. If both diffusion model blocks are enabled by accident, the project selects `flux2_klein` and never runs both models.
 
 ## `brute.json`
 
@@ -69,8 +79,9 @@ Rationale: keeping `parallel_combinations=1` prevents several diffusion pipeline
 
 After a successful short run, these are reasonable next steps:
 
-- Try `diffusion.max_size=896`.
-- Try `diffusion.num_inference_steps=30`.
+- Try `diffusion.models.flux2_klein.max_size=1280`.
+- Try `diffusion.models.flux2_klein.num_inference_steps=6` or `8`.
+- Try `diffusion.models.flux2_klein.cpu_offload=true` only if other processes are competing for VRAM.
 - Try `brute.trials=1000` or more.
 - Try `batch_brute.parallel_combinations=2` only if `nvidia-smi` shows plenty of free VRAM during single-combo runs.
 

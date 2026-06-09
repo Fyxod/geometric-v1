@@ -71,6 +71,7 @@ function resetRunView() {
   el("run-status").textContent = "idle";
   el("current-attempt").textContent = "-";
   el("current-mean").textContent = "-";
+  el("diffusion-model").textContent = "-";
   el("count-success").textContent = "0";
   el("count-unsuccessful").textContent = "0";
   el("count-failures").textContent = "0";
@@ -158,6 +159,7 @@ function handleEvent(event) {
   if (event.summary) updateSummary(event.summary);
 
   if (event.type === "diffusion_started") {
+    el("diffusion-model").textContent = event.selected_model || event.model_id || "-";
     setImageBox("original_diffused", null, true);
     if (activeTab !== "diffuse") setImageBox("perturbed_diffused", null, true);
   }
@@ -268,6 +270,9 @@ async function inspectRun(runId) {
   el("events").innerHTML = "";
   for (const event of events.slice(-250).reverse()) addEventLine(event);
   const outputs = report.outputs || {};
+  if (report.diffusion) {
+    el("diffusion-model").textContent = report.diffusion.used_model || report.diffusion.selected_model || "-";
+  }
   setImageBox("original", outputs.original);
   setImageBox("perturbed", outputs.perturbed);
   setImageBox("original_diffused", outputs.original_diffused || outputs.diffused);
