@@ -56,8 +56,10 @@ FLUX.2 Klein note: `requirements.txt` installs Diffusers with `git+https://githu
 Default PyTorch wheel target:
 
 ```bash
-PYTORCH_CUDA=cu128
+PYTORCH_CUDA=cu118
 ```
+
+This is the conservative default for the observed server driver profile, `NVIDIA-SMI 550.107.02` with reported CUDA `12.4`. You can override it if the server image is updated or already has a tested PyTorch build.
 
 Override examples:
 
@@ -76,7 +78,7 @@ Use `SKIP_TORCH=1` if your server image already has a known-good CUDA PyTorch bu
 python3.11 -m venv .venv-linux-gpu
 source .venv-linux-gpu/bin/activate
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 python -m pip install -r requirements.txt
 python -m pip install "typing-extensions>=4.14,<5"
 python -m pip install -r requirements-ui.txt
@@ -106,7 +108,7 @@ micromamba create -y -p "$PWD/.venv-linux-gpu" -c conda-forge \
 micromamba activate "$PWD/.venv-linux-gpu"
 
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 python -m pip install -r requirements.txt
 python -m pip install "typing-extensions>=4.14,<5"
 python -m pip install -r requirements-ui.txt

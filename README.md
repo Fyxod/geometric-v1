@@ -479,7 +479,7 @@ DeepFace model notes:
 
 - Only `SFace`, `OpenFace`, `Facenet`, and `Facenet512` are supported by this project. Other DeepFace model names in older configs are ignored.
 - `workers` can be `"auto"` or an integer. It is only used when the full pipeline resolves diffusion to CUDA. CPU-mode runs and standalone DeepFace commands stay sequential.
-- In `"auto"` mode, the worker count is capped at 3 and also limited by enabled model count, CPU count, and available RAM. The chosen value is recorded under `deepface.execution.resolved_workers` in `report.json`.
+- In `"auto"` mode, the worker count is capped at 3 and also limited by enabled model count, CPU count, and available RAM. If you set an integer manually, the runner respects it up to the number of enabled supported models. The chosen value is recorded under `deepface.execution.resolved_workers` in `report.json`.
 - The project caches known DeepFace weight files into `~\.deepface\weights` before each model runs. The first run can download the four supported model weights.
 - Each enabled model records either a comparison result or an error in `report.json`.
 

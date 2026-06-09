@@ -8,7 +8,7 @@
     "diffusion.cpu": "true forces CPU. false with device auto uses CUDA when PyTorch can see it.",
     "diffusion.models": "Enable exactly one model block for normal use. If both instruct_pix2pix and flux2_klein are enabled, flux2_klein is selected and instruct_pix2pix is ignored.",
     "flux2_klein": "FLUX.2 Klein options include num_inference_steps, guidance_scale, max_size, height, width, max_sequence_length, text_encoder_out_layers, torch_dtype, cpu_offload, sigmas, and seed.",
-    "deepface.workers": "auto or integer. Only used by the full pipeline when diffusion resolves to CUDA; CPU runs stay sequential."
+    "deepface.workers": "auto or integer. Only used by the full pipeline when diffusion resolves to CUDA; CPU runs stay sequential. auto chooses at most 3 workers; an integer is respected up to the enabled model count."
   },
   "input": "samples/image.png",
   "output_dir": "output/run_002",
