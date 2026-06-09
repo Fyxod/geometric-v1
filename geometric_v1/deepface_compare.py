@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import DeepFaceConfig, DEFAULT_DEEPFACE_MODELS
+from .events import EventCallback, emit_event
 
 
 ALL_DEEPFACE_MODELS = tuple(DEFAULT_DEEPFACE_MODELS.keys())
@@ -175,10 +176,19 @@ def resolve_deepface_workers(
     return workers, metadata
 
 
-def _compare_one_model(image_a: Path, image_b: Path, config: DeepFaceConfig, model_name: str) -> tuple[str, dict[str, Any]]:
+def _compare_one_model(
+    image_a: Path,
+    image_b: Path,
+    config: DeepFaceConfig,
+    model_name: str,
+    event_callback: EventCallback | None = None,
+    event_context: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
     from deepface import DeepFace
 
     started = time.perf_counter()
+    context = event_context or {}
+    emit_event(event_callback, "deepface_model_running", **context, model=model_name, status="running")
     try:
         _ensure_known_weight(model_name)
         verification = DeepFace.verify(
@@ -193,7 +203,7 @@ def _compare_one_model(image_a: Path, image_b: Path, config: DeepFaceConfig, mod
         )
         distance = float(verification.get("distance")) if verification.get("distance") is not None else None
         threshold = float(verification.get("threshold")) if verification.get("threshold") is not None else None
-        return model_name, {
+        result = {
             "enabled": True,
             "ok": True,
             "verified": bool(verification.get("verified")),
@@ -202,13 +212,57 @@ def _compare_one_model(image_a: Path, image_b: Path, config: DeepFaceConfig, mod
             "match_percent": _match_percent(distance, threshold),
             "elapsed_seconds": time.perf_counter() - started,
         }
+        emit_event(
+            event_callback,
+            "deepface_model_completed",
+            **context,
+            model=model_name,
+            percentage=result["match_percent"],
+            verified=result["verified"],
+            status="completed",
+            elapsed_seconds=result["elapsed_seconds"],
+        )
+        return model_name, result
     except Exception as exc:
-        return model_name, {
+        result = {
             "enabled": True,
             "ok": False,
             "error": f"{type(exc).__name__}: {exc}",
             "elapsed_seconds": time.perf_counter() - started,
         }
+        emit_event(
+            event_callback,
+            "deepface_model_error",
+            **context,
+            model=model_name,
+            status="error",
+            error=result["error"],
+            elapsed_seconds=result["elapsed_seconds"],
+        )
+        return model_name, result
+
+
+def _emit_running_mean(
+    event_callback: EventCallback | None,
+    event_context: dict[str, Any] | None,
+    model_results: dict[str, dict[str, Any]],
+) -> None:
+    ok_values = [
+        value["match_percent"]
+        for value in model_results.values()
+        if value.get("ok") and value.get("match_percent") is not None
+    ]
+    if not ok_values:
+        return
+    emit_event(
+        event_callback,
+        "running_mean_updated",
+        **(event_context or {}),
+        completed_models=len(ok_values),
+        mean_match_percent=sum(ok_values) / len(ok_values),
+        min_match_percent=min(ok_values),
+        max_match_percent=max(ok_values),
+    )
 
 
 def compare_images(
@@ -217,6 +271,8 @@ def compare_images(
     config: DeepFaceConfig | None = None,
     models: dict[str, bool] | None = None,
     allow_parallel: bool = False,
+    event_callback: EventCallback | None = None,
+    event_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     config = config or DeepFaceConfig()
     selected_models = models if models is not None else config.models
@@ -235,23 +291,46 @@ def compare_images(
     for model_name, enabled in selected_models.items():
         if not enabled:
             skipped_models[model_name] = {"enabled": False, "skipped": True}
+            emit_event(
+                event_callback,
+                "deepface_model_skipped",
+                **(event_context or {}),
+                model=model_name,
+                status="skipped",
+            )
             continue
         enabled_models.append(model_name)
+        emit_event(
+            event_callback,
+            "deepface_model_pending",
+            **(event_context or {}),
+            model=model_name,
+            status="pending",
+        )
 
     model_results: dict[str, dict[str, Any]] = {}
     if workers > 1:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [
-                executor.submit(_compare_one_model, image_a, image_b, config, model_name)
+                executor.submit(_compare_one_model, image_a, image_b, config, model_name, event_callback, event_context)
                 for model_name in enabled_models
             ]
             for future in as_completed(futures):
                 model_name, model_result = future.result()
                 model_results[model_name] = model_result
+                _emit_running_mean(event_callback, event_context, model_results)
     else:
         for model_name in enabled_models:
-            model_name, model_result = _compare_one_model(image_a, image_b, config, model_name)
+            model_name, model_result = _compare_one_model(
+                image_a,
+                image_b,
+                config,
+                model_name,
+                event_callback,
+                event_context,
+            )
             model_results[model_name] = model_result
+            _emit_running_mean(event_callback, event_context, model_results)
 
     for model_name in selected_models:
         if model_name in skipped_models:

@@ -4,13 +4,28 @@
 
 1. Read one input image and a text prompt from `pipeline.json`.
 2. Build `perturbed.png` by applying enabled geometric/frequency perturbations in order.
-3. Send both `original.png` and `perturbed.png` through InstructPix2Pix with the same prompt.
+3. Send both `original.png` and `perturbed.png` through the enabled diffusion model with the same prompt.
 4. Compare `original_diffused.png` and `perturbed_diffused.png` with enabled DeepFace models.
 5. Write all four images plus `report.json` to the configured output folder.
 
 ## Setup
 
 Python 3.11 is recommended for this project because it is a stable intersection for PyTorch, diffusers, TensorFlow, and DeepFace on Windows.
+
+For Ubuntu A6000 or similar 48 GB/50 GB-class GPU servers, use the dedicated setup bundle:
+
+```bash
+bash linux-gpu/install_linux_a6000.sh
+source .venv-linux-gpu/bin/activate
+python -m geometric_v1.pipeline --config linux-gpu/pipeline.json
+```
+
+The Ubuntu profile lives in `linux-gpu/` and includes:
+
+- `Readme.md`: Ubuntu A6000 installation and run instructions
+- `install_linux_a6000.sh`: no-root installer for Python 3.11 env, CUDA PyTorch, and project dependencies
+- `pipeline.json`, `brute.json`, `batch_brute.json`: A6000-oriented configs
+- `parameters.md`: explanation of every parameter change
 
 Before installing Python packages on a new Windows laptop, install:
 
@@ -26,18 +41,27 @@ python -m venv .venv --system-site-packages
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 $env:CMAKE_ARGS="-DDLIB_USE_CUDA=OFF"
+# Install the correct PyTorch wheel for your CPU/GPU from https://pytorch.org/get-started/locally/ here.
 python -m pip install -r requirements.txt
 python -m pip install "typing-extensions>=4.14,<5"
+python -m pip install -r requirements-ui.txt
 ```
 
 The `CMAKE_ARGS` line keeps `dlib` on a CPU-only build path. Without it, dlib may try to compile against a partial CUDA toolchain and fail on Windows.
 
 This project pins `numpy>=1.22,<=1.24.3` because TensorFlow 2.12.1 declares that exact compatible range. TensorFlow 2.12.1 is intentional because the DeepFace model named `DeepFace` needs `LocallyConnected2D`, which is missing from newer TensorFlow releases. PyTorch needs a newer `typing-extensions`, so the final `typing-extensions` command is intentional even though TensorFlow's package metadata asks for an older version. This exact combination was tested locally with CUDA PyTorch and all DeepFace recognition models.
 
-PyTorch is not listed in `requirements.txt` because the right wheel depends on the laptop's CPU/GPU/CUDA setup. If PyTorch is not already installed in your environment, install it with the selector at the official PyTorch install page after `requirements.txt`, then rerun:
+`albumentations` is pinned to `1.3.1` because `albumentations` 2.x requires `numpy>=1.24.4`, which conflicts with TensorFlow 2.12.1's `numpy<=1.24.3` requirement.
+
+`requirements.txt` installs Diffusers from the current Hugging Face GitHub branch because `Flux2KleinPipeline` is not available in older stable Diffusers releases. That means Git must be available before running `python -m pip install -r requirements.txt`.
+
+The local dashboard adds `fastapi` and `uvicorn[standard]`. They live in `requirements-ui.txt` so pip does not try to solve TensorFlow's older `typing-extensions` metadata and FastAPI's newer `typing-extensions` metadata in the same transaction. Install core requirements first, then the final `typing-extensions` override, then UI requirements.
+
+PyTorch is not listed directly in `requirements.txt` because the right wheel depends on the laptop's CPU/GPU/CUDA setup. Install the correct PyTorch wheel before `requirements.txt`; otherwise `accelerate` may cause pip to pull a default torch build. If you change PyTorch after installing requirements, rerun:
 
 ```powershell
 python -m pip install "typing-extensions>=4.14,<5"
+python -m pip install -r requirements-ui.txt
 ```
 
 For a CPU-only laptop, choose the CPU PyTorch command from the official selector, set `"cpu": true` in `pipeline.json`, and expect diffusion to be slow. For an NVIDIA GPU laptop, choose the CUDA PyTorch command that matches your driver, keep `"cpu": false`, and check `diffusion.resolved_device` in `report.json`.
@@ -63,6 +87,7 @@ run_deepface_compare.py
 run_deepface_model_check.py
 run_brute_force.py
 run_batch_brute_force.py
+run_ui.py
 pipeline.json
 brute.json
 batch_brute.json
@@ -70,6 +95,118 @@ sample_jsons/
 ```
 
 There is no `src/` layout.
+
+## Local UI
+
+The project includes a local FastAPI dashboard on top of the existing Python runners. It does not replace the CLI commands and it does not duplicate pipeline, brute-force, or batch brute-force logic.
+
+Start it from the repository root:
+
+```powershell
+python run_ui.py --host 127.0.0.1 --port 7860
+```
+
+Module form:
+
+```powershell
+python -m geometric_v1.ui.backend --host 127.0.0.1 --port 7860
+```
+
+Then open:
+
+```text
+http://127.0.0.1:7860
+```
+
+The UI has tabs for:
+
+- Perturb
+- Diffuse
+- Pipeline
+- Brute Force
+- Batch Brute Force
+- History
+
+Architecture:
+
+- `geometric_v1/ui/backend.py` exposes the FastAPI API and serves the static UI.
+- `geometric_v1/ui/manager.py` starts runs in background threads, writes effective configs, streams events, and indexes history.
+- `geometric_v1/ui/history.py` stores lightweight run metadata in SQLite.
+- `geometric_v1/ui/static/` contains the browser dashboard. There is no Node or frontend build step.
+
+The UI reads `pipeline.json`, `brute.json`, and `batch_brute.json` as the source of truth. The JSON editors in the browser let you make temporary changes before starting a run. Those changes are saved only as effective configs for that UI run and are not written back to the permanent JSON files. Permanent changes should still be made manually in the repo JSON files.
+
+Each UI-triggered run writes to:
+
+```text
+output/ui_runs/<run_id>/
+  effective_pipeline.json
+  effective_brute.json
+  effective_batch_brute.json
+  events.jsonl
+  report.json
+```
+
+Only the effective configs that apply to the run type are written. For example, a perturb-only run writes `effective_pipeline.json`, while a batch brute-force run writes all three.
+
+History storage:
+
+- SQLite index: `output/ui_runs/ui_history.sqlite`
+- Actual images, reports, sampled configs, brute outputs, and batch outputs remain in normal output folders under each UI run directory.
+- The History tab can inspect previous runs after restarting the UI because it reads the SQLite index plus saved reports and `events.jsonl`.
+
+Event streaming:
+
+- The backend streams structured events through Server-Sent Events at `/api/runs/<run_id>/events`.
+- The same events are appended to `events.jsonl`.
+- CLI runs ignore events because no callback is supplied.
+
+Events include run lifecycle, perturbation, diffusion, image writes, brute attempt state, DeepFace model state, running mean updates, min/max score updates, batch combo state, and log/status messages.
+
+Brute-force UI behavior:
+
+- Shows the current run number and whether the attempt is new, skipped, resumed, successful, unsuccessful, or failure.
+- Shows sampled perturbation options from the current `sampled_config.json` event.
+- Shows original, perturbed, original diffused, and perturbed diffused image boxes. Empty boxes are shown before files exist, and image boxes update when `image_written` events arrive.
+- Shows every enabled DeepFace model as pending, running, completed, or error.
+- Updates the mean as DeepFace model results arrive.
+- Tracks successful, unsuccessful, failures, skipped, resumed, lowest mean, and highest mean.
+
+Batch brute-force UI behavior:
+
+- Shows current image/prompt combination metadata.
+- Streams the same brute-force attempt and DeepFace events for the active combination.
+- Tracks queued, running, completed, skipped, resumed, and failed combo events.
+- Supports inspection of completed runs through the History tab and saved reports.
+
+Resume and stopping:
+
+- The Stop button requests a safe stop. Brute force stops after the current attempt boundary; batch brute force stops at the next safe combo/attempt boundary.
+- Stopping does not delete completed run folders.
+- Resume is available from History for brute and batch brute runs. It reruns the saved effective config with brute-force resume enabled, so completed folders are skipped and incomplete folders are archived according to the normal resume rules.
+
+Backend endpoints:
+
+- `GET /api/configs`
+- `POST /api/runs/perturb`
+- `POST /api/runs/diffuse`
+- `POST /api/runs/pipeline`
+- `POST /api/runs/brute`
+- `POST /api/runs/batch_brute`
+- `POST /api/runs/<run_id>/stop`
+- `POST /api/runs/<run_id>/resume`
+- `GET /api/runs`
+- `GET /api/runs/<run_id>`
+- `GET /api/runs/<run_id>/report`
+- `GET /api/runs/<run_id>/events`
+- `GET /api/runs/<run_id>/events.json`
+- `GET /api/file?path=<absolute-project-path>`
+
+Run a lightweight backend smoke test:
+
+```powershell
+python -m geometric_v1.ui.smoke
+```
 
 ## Full Pipeline
 
@@ -266,14 +403,35 @@ sample_jsons/sample_batch_brute.json
     }
   ],
   "diffusion": {
-    "model_id": "timbrooks/instruct-pix2pix",
     "cpu": false,
     "device": "auto",
     "gpu_index": 0,
-    "num_inference_steps": 10,
-    "guidance_scale": 7.5,
-    "image_guidance_scale": 1.0,
-    "max_size": 512
+    "models": {
+      "instruct_pix2pix": {
+        "enabled": false,
+        "model_id": "timbrooks/instruct-pix2pix",
+        "num_inference_steps": 10,
+        "guidance_scale": 7.5,
+        "image_guidance_scale": 1.0,
+        "max_size": 512,
+        "seed": 7
+      },
+      "flux2_klein": {
+        "enabled": true,
+        "model_id": "black-forest-labs/FLUX.2-klein-4B",
+        "num_inference_steps": 4,
+        "guidance_scale": 1.0,
+        "max_size": 768,
+        "height": null,
+        "width": null,
+        "max_sequence_length": 512,
+        "text_encoder_out_layers": [9, 18, 27],
+        "torch_dtype": "bfloat16",
+        "cpu_offload": false,
+        "sigmas": null,
+        "seed": 7
+      }
+    }
   },
   "deepface": {
     "enabled": true,
@@ -299,9 +457,31 @@ sample_jsons/sample_batch_brute.json
 }
 ```
 
+Diffusion model selection:
+
+- `pipeline.json` contains two diffusion model blocks: `instruct_pix2pix` and `flux2_klein`.
+- Each model block has an `enabled` boolean.
+- If only one model is enabled, that model runs.
+- If both are enabled, `flux2_klein` runs and `instruct_pix2pix` is ignored.
+- The pipeline never runs both diffusion models in the same run.
+- Pipeline, diffuse-only, brute-force, and batch brute-force reports write `diffusion.used_model`, `diffusion.used_model_id`, `diffusion.selected_model`, and `diffusion.selected_model_id`.
+
+FLUX.2 Klein tunable options:
+
+- `num_inference_steps`: denoising steps. The model card example uses `4`.
+- `guidance_scale`: prompt guidance. The model card example uses `1.0`.
+- `max_size`: used by this project to resize the input image when `height` and `width` are not set.
+- `height` and `width`: optional explicit output canvas size, rounded down to multiples of 8.
+- `max_sequence_length`: prompt token budget passed to Diffusers.
+- `text_encoder_out_layers`: encoder layers used by the Flux2Klein pipeline.
+- `torch_dtype`: `bfloat16`, `float16`, or `float32`; CUDA defaults should generally use `bfloat16`.
+- `cpu_offload`: enables Diffusers model CPU offload when CUDA is selected.
+- `sigmas`: optional custom scheduler sigma list. Leave `null` for normal use.
+- `seed`: generator seed.
+
 Diffusion device notes:
 
-- Set `"cpu": true` to force InstructPix2Pix onto CPU even when CUDA is available.
+- Set `"cpu": true` to force diffusion onto CPU even when CUDA is available.
 - Keep `"cpu": false` with `"device": "auto"` to use CUDA when PyTorch can see it, otherwise CPU.
 - The pipeline writes `diffusion.resolved_device` into `report.json` so you can confirm the actual device used.
 - GPU-mode pipeline runs use batched diffusion for `original.png` and `perturbed.png`. CPU-mode runs keep the old sequential diffusion path.
@@ -387,6 +567,8 @@ That makes `100%` mean identical embedding distance, about `50%` mean the model 
 ## References
 
 - Hugging Face diffusers InstructPix2Pix docs: <https://huggingface.co/docs/diffusers/api/pipelines/pix2pix>
+- FLUX.2 Klein model card: <https://huggingface.co/black-forest-labs/FLUX.2-klein-4B>
+- Hugging Face Diffusers Flux2 docs: <https://huggingface.co/docs/diffusers/main/api/pipelines/flux2>
 - DeepFace verify/model docs: <https://github.com/serengil/deepface/blob/master/deepface/DeepFace.py>
 - TensorFlow pip install notes: <https://www.tensorflow.org/install/pip>
 - PyTorch install selector: <https://pytorch.org/get-started/>

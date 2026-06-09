@@ -1,46 +1,52 @@
 {
-  "input": "samples/image.png",
-  "output_dir": "output/run_002",
+  "input": "../samples/image.png",
+  "output_dir": "../output/linux_gpu_pipeline",
   "prompt": "add sunglasses",
-  "seed": 15,
+  "seed": 42,
   "perturbations": [
     {
       "method": "homography",
-      "enabled": false,
-      "strength": 0.04
+      "enabled": true,
+      "strength": 0.035,
+      "seed": 42
     },
     {
       "method": "thin-plate-spline",
       "enabled": true,
-      "strength": 0.002,
-      "grid": 7
+      "strength": 0.004,
+      "grid": 9,
+      "seed": 43
     },
     {
       "method": "delaunay",
       "enabled": true,
-      "strength": 0.008, 
-      "grid": 8
+      "strength": 0.009,
+      "grid": 10,
+      "seed": 44
     },
     {
       "method": "fft-phase",
       "enabled": true,
-      "strength": 50000,
-      "coefficients": 6
+      "strength": 0.22,
+      "coefficients": 12,
+      "seed": 45
     },
     {
       "method": "elastic",
       "enabled": true,
-      "strength": 0.01,
-      "sigma": 12.0
+      "strength": 0.014,
+      "sigma": 16.0,
+      "seed": 46
     },
     {
       "method": "rolling-shutter",
       "enabled": true,
-      "strength": 0.008,
-      "rolling_frequency": 1.5,
+      "strength": 0.01,
+      "rolling_frequency": 1.8,
       "rolling_phase": 0.0,
-      "rolling_shear": 0.02,
-      "rolling_acceleration": 0.0
+      "rolling_shear": 0.035,
+      "rolling_acceleration": 0.005,
+      "seed": 47
     }
   ],
   "diffusion": {
@@ -51,18 +57,18 @@
       "instruct_pix2pix": {
         "enabled": false,
         "model_id": "timbrooks/instruct-pix2pix",
-        "num_inference_steps": 10,
+        "num_inference_steps": 20,
         "guidance_scale": 7.5,
         "image_guidance_scale": 1.0,
-        "max_size": 512,
-        "seed": 15
+        "max_size": 768,
+        "seed": 42
       },
       "flux2_klein": {
         "enabled": true,
         "model_id": "black-forest-labs/FLUX.2-klein-4B",
         "num_inference_steps": 4,
         "guidance_scale": 1.0,
-        "max_size": 768,
+        "max_size": 1024,
         "height": null,
         "width": null,
         "max_sequence_length": 512,
@@ -70,7 +76,7 @@
         "torch_dtype": "bfloat16",
         "cpu_offload": false,
         "sigmas": null,
-        "seed": 15
+        "seed": 42
       }
     }
   },
@@ -80,7 +86,7 @@
     "distance_metric": "cosine",
     "enforce_detection": false,
     "align": false,
-    "workers": "auto",
+    "workers": 3,
     "models": {
       "VGG-Face": true,
       "Facenet": true,

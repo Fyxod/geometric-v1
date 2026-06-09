@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .config import load_pipeline_config
+from .events import EventCallback, StopCallback, emit_event, is_stop_requested, with_event_context
 from .pipeline import run_pipeline
 
 
@@ -169,6 +171,11 @@ def _make_sampled_pipeline(
 
     diffusion = sampled.setdefault("diffusion", {})
     diffusion["seed"] = attempt_seed
+    models = diffusion.get("models")
+    if isinstance(models, dict):
+        for model_name in ("instruct_pix2pix", "flux2_klein"):
+            if isinstance(models.get(model_name), dict):
+                models[model_name]["seed"] = attempt_seed
 
     enabled_index = 0
     for step in sampled.get("perturbations", []):
@@ -180,6 +187,28 @@ def _make_sampled_pipeline(
         for field, bounds in ranges.get(method, {}).items():
             step[field] = _sample_parameter(rng, field, bounds)
     return sampled
+
+
+def _diffusion_report_from_pipeline_config(pipeline_config: Path) -> dict[str, str]:
+    diffusion = load_pipeline_config(pipeline_config).diffusion
+    return {
+        "selected_model": diffusion.selected_model,
+        "selected_model_id": diffusion.selected_model_id,
+        "used_model": diffusion.selected_model,
+        "used_model_id": diffusion.selected_model_id,
+    }
+
+
+def _diffusion_report_from_pipeline_report(report: dict[str, Any]) -> dict[str, Any] | None:
+    diffusion = report.get("diffusion")
+    if not isinstance(diffusion, dict):
+        return None
+    return {
+        "selected_model": diffusion.get("selected_model") or diffusion.get("used_model"),
+        "selected_model_id": diffusion.get("selected_model_id") or diffusion.get("used_model_id"),
+        "used_model": diffusion.get("used_model") or diffusion.get("selected_model"),
+        "used_model_id": diffusion.get("used_model_id") or diffusion.get("selected_model_id"),
+    }
 
 
 def _deepface_score(report: dict[str, Any]) -> tuple[float | None, int, list[str]]:
@@ -262,6 +291,7 @@ def _completed_attempt_record(folder: Path, attempt: int) -> dict[str, Any] | No
         "counted_models": int(brute_force.get("counted_models", 0) or 0),
         "errored_models": brute_force.get("errored_models", []),
         "pipeline_error": brute_force.get("pipeline_error"),
+        "diffusion": _diffusion_report_from_pipeline_report(report),
         "saved": True,
         "folder": str(folder),
         "action": "skipped",
@@ -326,6 +356,7 @@ def _error_report(
     staging_dir: Path,
     attempt: int,
     attempt_seed: int,
+    diffusion_report: dict[str, str],
     exc: Exception,
 ) -> dict[str, Any]:
     return {
@@ -336,6 +367,7 @@ def _error_report(
             "report": str(staging_dir / "report.json"),
         },
         "deepface": None,
+        "diffusion": diffusion_report,
         "brute_force": {
             "attempt": attempt,
             "attempt_seed": attempt_seed,
@@ -362,16 +394,48 @@ def _summarize_attempts(attempts: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _emit_brute_score_bounds(
+    event_callback: EventCallback | None,
+    score_values: list[tuple[int, float, str, str]],
+) -> None:
+    if not score_values:
+        return
+    minimum = min(score_values, key=lambda item: item[1])
+    maximum = max(score_values, key=lambda item: item[1])
+    emit_event(
+        event_callback,
+        "min_max_score_updated",
+        min_score={
+            "run_number": minimum[0],
+            "mean_percentage": minimum[1],
+            "status": minimum[2],
+            "path": minimum[3],
+            "report": str(Path(minimum[3]) / "report.json"),
+        },
+        max_score={
+            "run_number": maximum[0],
+            "mean_percentage": maximum[1],
+            "status": maximum[2],
+            "path": maximum[3],
+            "report": str(Path(maximum[3]) / "report.json"),
+        },
+    )
+
+
 def run_brute_force(
     config_path: Path,
     attempt_seeds: list[int] | None = None,
     rng_seed: int | None = None,
+    event_callback: EventCallback | None = None,
+    stop_requested: StopCallback | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
+    emit_event(event_callback, "run_started", run_type="brute", config_path=str(config_path))
     config = load_brute_config(config_path)
     if attempt_seeds is not None and len(attempt_seeds) != config.trials:
         raise ValueError("attempt_seeds length must match brute trials")
     pipeline_data = _read_json(config.pipeline_config)
+    diffusion_report = _diffusion_report_from_pipeline_config(config.pipeline_config)
     parameter_seed = config.seed if rng_seed is None else rng_seed
 
     successful_dir = config.output_dir / "successful"
@@ -405,10 +469,24 @@ def run_brute_force(
         "attempt_seed_range": list(config.attempt_seed_range),
         "resume": config.resume,
         "save_unsuccessful": config.save_unsuccessful,
+        "diffusion": diffusion_report,
         "attempts": [],
     }
+    stopped = False
+    score_values: list[tuple[int, float, str, str]] = []
 
     for attempt in range(config.trials):
+        if is_stop_requested(stop_requested):
+            stopped = True
+            emit_event(
+                event_callback,
+                "run_stopping",
+                run_type="brute",
+                reason="stop requested before next attempt",
+                next_attempt=attempt,
+            )
+            break
+
         run_name = _run_name(attempt)
         attempt_seed = planned_attempt_seeds[attempt]
         completed_records, incomplete_paths = _find_attempt_outputs(config, attempt)
@@ -430,6 +508,21 @@ def run_brute_force(
                 brute_report["attempts"].append(record)
                 brute_report["summary"] = _summarize_attempts(brute_report["attempts"])
                 _write_json(brute_report_path, brute_report)
+                if record.get("average_match_percent") is not None:
+                    score_values.append(
+                        (attempt, float(record["average_match_percent"]), str(record["status"]), str(record["folder"]))
+                    )
+                    _emit_brute_score_bounds(event_callback, score_values)
+                emit_event(
+                    event_callback,
+                    "brute_attempt_skipped",
+                    run_number=attempt,
+                    run_name=run_name,
+                    status=record["status"],
+                    action="skipped",
+                    folder=record["folder"],
+                    summary=brute_report["summary"],
+                )
                 print(f"{run_name}: skipped completed {record['status']}")
                 continue
 
@@ -454,13 +547,42 @@ def run_brute_force(
             ranges=config.ranges,
         )
         _write_json(sampled_config_path, sampled_config)
+        emit_event(
+            event_callback,
+            "brute_attempt_started",
+            run_number=attempt,
+            run_name=run_name,
+            attempt_seed=attempt_seed,
+            action=action,
+            sampled_config=str(sampled_config_path),
+            sampled_perturbations=sampled_config.get("perturbations", []),
+        )
 
         pipeline_error: str | None = None
         try:
-            report = run_pipeline(sampled_config_path)
+            report = run_pipeline(
+                sampled_config_path,
+                event_callback=with_event_context(event_callback, run_number=attempt, run_name=run_name),
+            )
         except Exception as exc:  # Keep going so one bad sample does not stop the search.
             pipeline_error = f"{type(exc).__name__}: {exc}"
-            report = _error_report(config, sampled_config_path, staging_dir, attempt, attempt_seed, exc)
+            report = _error_report(
+                config,
+                sampled_config_path,
+                staging_dir,
+                attempt,
+                attempt_seed,
+                diffusion_report,
+                exc,
+            )
+            emit_event(
+                event_callback,
+                "brute_attempt_failed",
+                run_number=attempt,
+                run_name=run_name,
+                attempt_seed=attempt_seed,
+                error=pipeline_error,
+            )
 
         average, counted_models, errored_models = _deepface_score(report)
         has_error = pipeline_error is not None or bool(errored_models) or average is None
@@ -502,6 +624,7 @@ def run_brute_force(
             "counted_models": counted_models,
             "errored_models": errored_models,
             "pipeline_error": pipeline_error,
+            "diffusion": _diffusion_report_from_pipeline_report(report),
             "saved": True,
             "folder": str(final_dir),
             "action": action,
@@ -511,14 +634,41 @@ def run_brute_force(
         brute_report["summary"] = _summarize_attempts(brute_report["attempts"])
         _write_json(brute_report_path, brute_report)
 
+        if average is not None:
+            score_values.append((attempt, float(average), status, str(final_dir)))
+            _emit_brute_score_bounds(event_callback, score_values)
+        emit_event(
+            event_callback,
+            "brute_attempt_completed",
+            run_number=attempt,
+            run_name=run_name,
+            attempt_seed=attempt_seed,
+            status=status,
+            action=action,
+            average_match_percent=average,
+            counted_models=counted_models,
+            errored_models=errored_models,
+            folder=str(final_dir),
+            summary=brute_report["summary"],
+        )
+
         average_text = "none" if average is None else f"{average:.4f}"
         print(f"{run_name}: average={average_text} status={status} action={action}")
 
+    brute_report["status"] = "stopped" if stopped else "completed"
     brute_report["elapsed_seconds"] = time.perf_counter() - started
     brute_report["summary"] = _summarize_attempts(brute_report["attempts"])
     _write_json(brute_report_path, brute_report)
     with suppress(OSError):
         working_dir.rmdir()
+    emit_event(
+        event_callback,
+        "run_completed" if not stopped else "run_stopped",
+        run_type="brute",
+        status=brute_report["status"],
+        report_path=str(brute_report_path),
+        summary=brute_report["summary"],
+    )
     return brute_report
 
 
