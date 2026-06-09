@@ -141,19 +141,24 @@ install_torch() {
 }
 
 install_requirements() {
-  log "Installing project requirements with pip"
+  log "Installing core project requirements with pip"
   if [[ "${INSTALL_DLIB}" == "1" ]]; then
     if ! CMAKE_ARGS="-DDLIB_USE_CUDA=OFF" python -m pip install -r requirements.txt; then
       cat >&2 <<'EOF'
 
 The dependency install failed. On no-root servers, the most common cause is dlib needing
-compiler/CMake pieces that are not available in the current environment.
+compiler/CMake pieces that are not available in the current environment, but pip resolver
+conflicts can also happen if package pins drift.
 
 Options:
   1. Use the default micromamba fallback:
        USE_MICROMAMBA_IF_NEEDED=1 bash linux-gpu/install_linux_a6000.sh
 
-  2. Skip dlib and disable the Dlib DeepFace model in your JSON:
+  2. Make sure your repo is updated, then rerun:
+       git pull
+       bash linux-gpu/install_linux_a6000.sh
+
+  3. If the error specifically mentions dlib, skip dlib and disable the Dlib DeepFace model in your JSON:
        INSTALL_DLIB=0 bash linux-gpu/install_linux_a6000.sh
 
 EOF
@@ -168,6 +173,8 @@ EOF
   fi
 
   python -m pip install "typing-extensions>=4.14,<5"
+  log "Installing UI/backend requirements with pip"
+  python -m pip install -r requirements-ui.txt
 }
 
 verify_gpu() {

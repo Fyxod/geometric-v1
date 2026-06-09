@@ -41,20 +41,25 @@ python -m venv .venv --system-site-packages
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 $env:CMAKE_ARGS="-DDLIB_USE_CUDA=OFF"
+# Install the correct PyTorch wheel for your CPU/GPU from https://pytorch.org/get-started/locally/ here.
 python -m pip install -r requirements.txt
 python -m pip install "typing-extensions>=4.14,<5"
+python -m pip install -r requirements-ui.txt
 ```
 
 The `CMAKE_ARGS` line keeps `dlib` on a CPU-only build path. Without it, dlib may try to compile against a partial CUDA toolchain and fail on Windows.
 
 This project pins `numpy>=1.22,<=1.24.3` because TensorFlow 2.12.1 declares that exact compatible range. TensorFlow 2.12.1 is intentional because the DeepFace model named `DeepFace` needs `LocallyConnected2D`, which is missing from newer TensorFlow releases. PyTorch needs a newer `typing-extensions`, so the final `typing-extensions` command is intentional even though TensorFlow's package metadata asks for an older version. This exact combination was tested locally with CUDA PyTorch and all DeepFace recognition models.
 
-The local dashboard adds `fastapi` and `uvicorn[standard]`. These are included in `requirements.txt`; they are only needed for the UI/backend and do not affect the existing CLI entrypoints.
+`albumentations` is pinned to `1.3.1` because `albumentations` 2.x requires `numpy>=1.24.4`, which conflicts with TensorFlow 2.12.1's `numpy<=1.24.3` requirement.
 
-PyTorch is not listed in `requirements.txt` because the right wheel depends on the laptop's CPU/GPU/CUDA setup. If PyTorch is not already installed in your environment, install it with the selector at the official PyTorch install page after `requirements.txt`, then rerun:
+The local dashboard adds `fastapi` and `uvicorn[standard]`. They live in `requirements-ui.txt` so pip does not try to solve TensorFlow's older `typing-extensions` metadata and FastAPI's newer `typing-extensions` metadata in the same transaction. Install core requirements first, then the final `typing-extensions` override, then UI requirements.
+
+PyTorch is not listed directly in `requirements.txt` because the right wheel depends on the laptop's CPU/GPU/CUDA setup. Install the correct PyTorch wheel before `requirements.txt`; otherwise `accelerate` may cause pip to pull a default torch build. If you change PyTorch after installing requirements, rerun:
 
 ```powershell
 python -m pip install "typing-extensions>=4.14,<5"
+python -m pip install -r requirements-ui.txt
 ```
 
 For a CPU-only laptop, choose the CPU PyTorch command from the official selector, set `"cpu": true` in `pipeline.json`, and expect diffusion to be slow. For an NVIDIA GPU laptop, choose the CUDA PyTorch command that matches your driver, keep `"cpu": false`, and check `diffusion.resolved_device` in `report.json`.

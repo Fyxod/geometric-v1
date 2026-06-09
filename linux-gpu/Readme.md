@@ -41,11 +41,14 @@ The script will:
 2. If Python 3.11 is missing, download micromamba into `~/.local/bin` and create a local Python 3.11 environment.
 3. Create or reuse `.venv-linux-gpu`.
 4. Install CUDA-enabled PyTorch with pip.
-5. Install `requirements.txt` with pip.
+5. Install core `requirements.txt` with pip.
 6. Install the final `typing-extensions` override needed by PyTorch.
-7. Verify PyTorch CUDA visibility and TensorFlow import.
+7. Install UI/backend dependencies from `requirements-ui.txt`.
+8. Verify PyTorch CUDA visibility and TensorFlow import.
 
 The script does not run `sudo`, `apt`, or any root-level install command.
+
+Dependency note: `albumentations` is pinned to `1.3.1` in the project requirements. Do not upgrade it to `2.x` while using `tensorflow==2.12.1`; `albumentations` 2.x requires `numpy>=1.24.4`, but TensorFlow 2.12.1 requires `numpy<=1.24.3`.
 
 Default PyTorch wheel target:
 
@@ -75,6 +78,7 @@ python -m pip install --upgrade pip setuptools wheel
 python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 CMAKE_ARGS="-DDLIB_USE_CUDA=OFF" python -m pip install -r requirements.txt
 python -m pip install "typing-extensions>=4.14,<5"
+python -m pip install -r requirements-ui.txt
 ```
 
 If `python3.11 -m venv` fails because the server Python was built without venv support, run the script normally and let it use micromamba:
@@ -104,6 +108,7 @@ python -m pip install --upgrade pip setuptools wheel
 python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 CMAKE_ARGS="-DDLIB_USE_CUDA=OFF" python -m pip install -r requirements.txt
 python -m pip install "typing-extensions>=4.14,<5"
+python -m pip install -r requirements-ui.txt
 ```
 
 Verify:
