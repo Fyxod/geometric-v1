@@ -1,0 +1,38 @@
+{
+  "pipeline_config": "pipeline.json",
+  "output_dir": "../output/linux_gpu_brute_force",
+  "trials": 500,
+  "success_threshold": 50.0,
+  "seed": 42,
+  "randomize_attempt_seed": true,
+  "attempt_seed_range": [1, 2147483647],
+  "resume": true,
+  "save_unsuccessful": true,
+  "ranges": {
+    "homography": {
+      "strength": [0.005, 0.06]
+    },
+    "thin-plate-spline": {
+      "strength": [0.001, 0.006],
+      "grid": [5, 11]
+    },
+    "delaunay": {
+      "strength": [0.002, 0.012],
+      "grid": [6, 14]
+    },
+    "fft-phase": {
+      "strength": [0.05, 0.35],
+      "coefficients": [4, 18]
+    },
+    "elastic": {
+      "strength": [0.002, 0.02],
+      "sigma": [8.0, 24.0]
+    },
+    "rolling-shutter": {
+      "strength": [0.0, 0.014],
+      "rolling_frequency": [0.5, 3.5],
+      "rolling_shear": [0.0, 0.08],
+      "rolling_acceleration": [-0.04, 0.04]
+    }
+  }
+}

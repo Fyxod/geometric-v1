@@ -1,0 +1,16 @@
+{
+  "brute_config": "brute.json",
+  "pipeline_config": "pipeline.json",
+  "images_dir": "../samples/batch",
+  "image_extensions": [".png", ".jpg", ".jpeg", ".webp"],
+  "recursive": false,
+  "prompts": [
+    "add sunglasses",
+    "make the person look like a professional studio portrait",
+    "change the hairstyle while keeping the face realistic"
+  ],
+  "output_dir": "../output/linux_gpu_batch_brute",
+  "skip_existing": true,
+  "overwrite_existing": false,
+  "parallel_combinations": 1
+}

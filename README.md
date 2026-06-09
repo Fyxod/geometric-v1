@@ -12,6 +12,21 @@
 
 Python 3.11 is recommended for this project because it is a stable intersection for PyTorch, diffusers, TensorFlow, and DeepFace on Windows.
 
+For Ubuntu A6000 or similar 48 GB/50 GB-class GPU servers, use the dedicated setup bundle:
+
+```bash
+bash linux-gpu/install_linux_a6000.sh
+source .venv-linux-gpu/bin/activate
+python -m geometric_v1.pipeline --config linux-gpu/pipeline.json
+```
+
+The Ubuntu profile lives in `linux-gpu/` and includes:
+
+- `Readme.md`: Ubuntu A6000 installation and run instructions
+- `install_linux_a6000.sh`: combined apt, Python 3.11 venv, CUDA PyTorch, and project dependency installer
+- `pipeline.json`, `brute.json`, `batch_brute.json`: A6000-oriented configs
+- `parameters.md`: explanation of every parameter change
+
 Before installing Python packages on a new Windows laptop, install:
 
 - Python 3.11.x
