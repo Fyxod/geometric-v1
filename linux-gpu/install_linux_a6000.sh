@@ -151,28 +151,48 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
 }
 
+write_core_requirements_without_accelerate() {
+  local requirements_path="$1"
+  python - "${requirements_path}" <<'PY'
+import sys
+from pathlib import Path
+
+output_path = Path(sys.argv[1])
+lines = []
+for line in Path("requirements.txt").read_text(encoding="utf-8").splitlines():
+    stripped = line.strip()
+    if stripped.startswith("accelerate"):
+        continue
+    lines.append(line)
+output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+}
+
 install_requirements() {
   log "Installing core project requirements with pip"
   if ! command -v git >/dev/null 2>&1; then
     die "git is required because requirements.txt installs the current Diffusers main branch for Flux2KleinPipeline."
   fi
+  core_requirements="$(mktemp)"
   torch_constraints="$(mktemp)"
+  write_core_requirements_without_accelerate "${core_requirements}"
   write_torch_constraints "${torch_constraints}"
   log "Protecting installed PyTorch packages while resolving project requirements"
   cat "${torch_constraints}"
+  log "Installing core requirements first; accelerate is installed after the TensorFlow/PyTorch typing-extensions handoff"
 
   constraints_args=(-c "${torch_constraints}")
   if [[ -n "${LINUX_GPU_CONSTRAINTS}" ]]; then
     if [[ ! -f "${LINUX_GPU_CONSTRAINTS}" ]]; then
-      rm -f "${torch_constraints}"
+      rm -f "${torch_constraints}" "${core_requirements}"
       die "LINUX_GPU_CONSTRAINTS points to a missing file: ${LINUX_GPU_CONSTRAINTS}"
     fi
     log "Using Linux GPU dependency constraints: ${LINUX_GPU_CONSTRAINTS}"
     constraints_args+=(-c "${LINUX_GPU_CONSTRAINTS}")
   fi
 
-  if ! PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/${PYTORCH_CUDA}" python -m pip install -r requirements.txt "${constraints_args[@]}"; then
-    rm -f "${torch_constraints}"
+  if ! PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/${PYTORCH_CUDA}" python -m pip install -r "${core_requirements}" "${constraints_args[@]}"; then
+    rm -f "${torch_constraints}" "${core_requirements}"
     cat >&2 <<'EOF'
 
 The dependency install failed. On no-root servers, the most common cause is a pip
@@ -193,9 +213,16 @@ Options:
 EOF
     exit 1
   fi
-  rm -f "${torch_constraints}"
+  rm -f "${core_requirements}" "${torch_constraints}"
 
   python -m pip install "typing-extensions>=4.14,<5"
+  log "Installing Accelerate after restoring PyTorch-compatible typing-extensions"
+  post_constraints_args=()
+  if [[ -n "${LINUX_GPU_CONSTRAINTS}" ]]; then
+    post_constraints_args+=(-c "${LINUX_GPU_CONSTRAINTS}")
+  fi
+  python -m pip install "psutil" "${post_constraints_args[@]}"
+  python -m pip install --no-deps "accelerate>=0.30" "${post_constraints_args[@]}"
   log "Installing UI/backend requirements with pip"
   python -m pip install -r requirements-ui.txt
 }

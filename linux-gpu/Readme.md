@@ -56,6 +56,8 @@ The installer also uses `linux-gpu/constraints-a6000.txt` to keep pip from spend
 
 The constraints also pin `wrapt==1.14.2`. Older `wrapt` source releases, such as `1.13.x`, do not support Python 3.11 metadata generation because they import the removed `inspect.formatargspec` API.
 
+The installer intentionally stages `accelerate` after the core install. TensorFlow 2.12 metadata asks for `typing-extensions<4.6`, while modern PyTorch asks for `typing-extensions>=4.10`. The script lets the TensorFlow solve finish first, restores `typing-extensions>=4.14,<5`, then installs `accelerate` without reopening that TensorFlow/PyTorch resolver conflict.
+
 If you need to test a custom constraints file:
 
 ```bash
@@ -103,10 +105,21 @@ from importlib.metadata import version
 for package in ("torch", "torchvision", "torchaudio"):
     print(f"{package}=={version(package)}")
 PY
-PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu118 python -m pip install -r requirements.txt \
+python - <<'PY' > /tmp/geometric_core_requirements.txt
+from pathlib import Path
+lines = []
+for line in Path("requirements.txt").read_text(encoding="utf-8").splitlines():
+    if line.strip().startswith("accelerate"):
+        continue
+    lines.append(line)
+Path("/tmp/geometric_core_requirements.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu118 python -m pip install -r /tmp/geometric_core_requirements.txt \
   -c /tmp/geometric_torch_constraints.txt \
   -c linux-gpu/constraints-a6000.txt
 python -m pip install "typing-extensions>=4.14,<5"
+python -m pip install psutil -c linux-gpu/constraints-a6000.txt
+python -m pip install --no-deps "accelerate>=0.30" -c linux-gpu/constraints-a6000.txt
 python -m pip install -r requirements-ui.txt
 ```
 
@@ -140,10 +153,21 @@ from importlib.metadata import version
 for package in ("torch", "torchvision", "torchaudio"):
     print(f"{package}=={version(package)}")
 PY
-PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu118 python -m pip install -r requirements.txt \
+python - <<'PY' > /tmp/geometric_core_requirements.txt
+from pathlib import Path
+lines = []
+for line in Path("requirements.txt").read_text(encoding="utf-8").splitlines():
+    if line.strip().startswith("accelerate"):
+        continue
+    lines.append(line)
+Path("/tmp/geometric_core_requirements.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu118 python -m pip install -r /tmp/geometric_core_requirements.txt \
   -c /tmp/geometric_torch_constraints.txt \
   -c linux-gpu/constraints-a6000.txt
 python -m pip install "typing-extensions>=4.14,<5"
+python -m pip install psutil -c linux-gpu/constraints-a6000.txt
+python -m pip install --no-deps "accelerate>=0.30" -c linux-gpu/constraints-a6000.txt
 python -m pip install -r requirements-ui.txt
 ```
 
