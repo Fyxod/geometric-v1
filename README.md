@@ -254,6 +254,8 @@ Module form:
 python -m geometric_v1.brute_force --config brute.json
 ```
 
+On long brute-force runs, DeepFace comparison is isolated in a short-lived subprocess for each attempt. Diffusion still runs in the main brute-force process so the diffusion pipeline cache remains warm, but TensorFlow/DeepFace native crashes cannot kill the whole brute run. If a DeepFace subprocess exits with an error or segmentation fault, that attempt is saved under `failures` and the run can continue or resume.
+
 `brute.json` controls only:
 
 - which `pipeline.json` to use

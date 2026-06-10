@@ -3,8 +3,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import random
 import shutil
+import subprocess
+import sys
 import tempfile
 import time
 from contextlib import suppress
@@ -13,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .config import load_pipeline_config
+from .config import DEFAULT_DEEPFACE_MODELS, DeepFaceConfig, load_pipeline_config
 from .events import EventCallback, StopCallback, emit_event, is_stop_requested, with_event_context
 from .pipeline import run_pipeline
 
@@ -229,6 +232,173 @@ def _deepface_score(report: dict[str, Any]) -> tuple[float | None, int, list[str
     if not values:
         return None, 0, errored_models
     return sum(values) / len(values), len(values), errored_models
+
+
+def _deepface_error_report(
+    image_a: Path,
+    image_b: Path,
+    config: DeepFaceConfig,
+    error: str,
+    elapsed_seconds: float,
+) -> dict[str, Any]:
+    models: dict[str, dict[str, Any]] = {}
+    for model_name in DEFAULT_DEEPFACE_MODELS:
+        enabled = bool(config.models.get(model_name, False))
+        if enabled:
+            models[model_name] = {
+                "enabled": True,
+                "ok": False,
+                "error": error,
+                "elapsed_seconds": elapsed_seconds,
+            }
+        else:
+            models[model_name] = {"enabled": False, "skipped": True}
+    return {
+        "image_a": str(image_a),
+        "image_b": str(image_b),
+        "detector_backend": config.detector_backend,
+        "distance_metric": config.distance_metric,
+        "execution": {
+            "isolated_subprocess": True,
+            "parallel": False,
+            "resolved_workers": 1,
+            "error": error,
+        },
+        "models": models,
+        "summary": {
+            "successful_models": 0,
+            "mean_match_percent": None,
+            "min_match_percent": None,
+            "max_match_percent": None,
+        },
+    }
+
+
+def _emit_deepface_report_events(
+    event_callback: EventCallback | None,
+    event_context: dict[str, Any],
+    deepface_report: dict[str, Any],
+) -> None:
+    model_results = deepface_report.get("models", {})
+    if not isinstance(model_results, dict):
+        return
+    ok_values: list[float] = []
+    for model_name, model_result in model_results.items():
+        if not isinstance(model_result, dict):
+            continue
+        if not model_result.get("enabled"):
+            emit_event(event_callback, "deepface_model_skipped", **event_context, model=model_name, status="skipped")
+            continue
+        if model_result.get("ok") and model_result.get("match_percent") is not None:
+            percentage = float(model_result["match_percent"])
+            ok_values.append(percentage)
+            emit_event(
+                event_callback,
+                "deepface_model_completed",
+                **event_context,
+                model=model_name,
+                percentage=percentage,
+                verified=bool(model_result.get("verified")),
+                status="completed",
+                elapsed_seconds=model_result.get("elapsed_seconds"),
+            )
+            emit_event(
+                event_callback,
+                "running_mean_updated",
+                **event_context,
+                completed_models=len(ok_values),
+                mean_match_percent=sum(ok_values) / len(ok_values),
+                min_match_percent=min(ok_values),
+                max_match_percent=max(ok_values),
+            )
+        else:
+            emit_event(
+                event_callback,
+                "deepface_model_error",
+                **event_context,
+                model=model_name,
+                status="error",
+                error=model_result.get("error", "DeepFace subprocess failed"),
+                elapsed_seconds=model_result.get("elapsed_seconds"),
+            )
+
+
+def _run_deepface_isolated(
+    report: dict[str, Any],
+    sampled_config_path: Path,
+    event_callback: EventCallback | None,
+    event_context: dict[str, Any],
+) -> dict[str, Any]:
+    outputs = report.get("outputs", {})
+    image_a = Path(str(outputs.get("original_diffused", "")))
+    image_b = Path(str(outputs.get("perturbed_diffused", "")))
+    deepface_config = load_pipeline_config(sampled_config_path).deepface
+    enabled_models = [
+        model_name
+        for model_name, enabled in deepface_config.models.items()
+        if model_name in DEFAULT_DEEPFACE_MODELS and enabled
+    ]
+    for model_name in DEFAULT_DEEPFACE_MODELS:
+        if model_name in enabled_models:
+            emit_event(event_callback, "deepface_model_pending", **event_context, model=model_name, status="pending")
+        else:
+            emit_event(event_callback, "deepface_model_skipped", **event_context, model=model_name, status="skipped")
+    for model_name in enabled_models:
+        emit_event(event_callback, "deepface_model_running", **event_context, model=model_name, status="running")
+
+    started = time.perf_counter()
+    output_path = Path(str(report.get("output_dir", sampled_config_path.parent))) / "deepface_report.json"
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = "-1"
+    env.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+    env.setdefault("TF_NUM_INTRAOP_THREADS", "1")
+    env.setdefault("TF_NUM_INTEROP_THREADS", "1")
+    env.setdefault("OMP_NUM_THREADS", "1")
+    command = [
+        sys.executable,
+        "-m",
+        "geometric_v1.deepface_cli",
+        "--image-a",
+        str(image_a),
+        "--image-b",
+        str(image_b),
+        "--output",
+        str(output_path),
+        "--config",
+        str(sampled_config_path),
+    ]
+    completed = subprocess.run(
+        command,
+        cwd=str(Path(__file__).resolve().parents[1]),
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    elapsed = time.perf_counter() - started
+    if completed.returncode != 0:
+        stderr = completed.stderr.strip()
+        stdout = completed.stdout.strip()
+        detail = stderr or stdout or "no subprocess output"
+        error = f"DeepFace subprocess exited with code {completed.returncode}: {detail}"
+        deepface_report = _deepface_error_report(image_a, image_b, deepface_config, error, elapsed)
+        _write_json(output_path, deepface_report)
+        _emit_deepface_report_events(event_callback, event_context, deepface_report)
+        return deepface_report
+
+    try:
+        deepface_report = _read_json(output_path)
+    except Exception as exc:
+        error = f"DeepFace subprocess did not write a valid report: {type(exc).__name__}: {exc}"
+        deepface_report = _deepface_error_report(image_a, image_b, deepface_config, error, elapsed)
+        _write_json(output_path, deepface_report)
+    execution = deepface_report.setdefault("execution", {})
+    if isinstance(execution, dict):
+        execution["isolated_subprocess"] = True
+        execution["parallel"] = False
+        execution["resolved_workers"] = 1
+    _emit_deepface_report_events(event_callback, event_context, deepface_report)
+    return deepface_report
 
 
 def _update_final_paths(report: dict[str, Any], sampled_config: dict[str, Any], final_dir: Path) -> None:
@@ -563,7 +733,15 @@ def run_brute_force(
             report = run_pipeline(
                 sampled_config_path,
                 event_callback=with_event_context(event_callback, run_number=attempt, run_name=run_name),
+                run_deepface=False,
             )
+            if load_pipeline_config(sampled_config_path).deepface.enabled:
+                report["deepface"] = _run_deepface_isolated(
+                    report,
+                    sampled_config_path,
+                    event_callback,
+                    {"stage": "pipeline", "run_number": attempt, "run_name": run_name},
+                )
         except Exception as exc:  # Keep going so one bad sample does not stop the search.
             pipeline_error = f"{type(exc).__name__}: {exc}"
             report = _error_report(

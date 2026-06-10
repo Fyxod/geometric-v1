@@ -16,7 +16,11 @@ from .image_io import load_image, load_pil_image, save_image, save_pil
 from .perturbations import apply_perturbation_pipeline
 
 
-def run_pipeline(config_path: Path, event_callback: EventCallback | None = None) -> dict[str, Any]:
+def run_pipeline(
+    config_path: Path,
+    event_callback: EventCallback | None = None,
+    run_deepface: bool = True,
+) -> dict[str, Any]:
     started = time.perf_counter()
     emit_event(event_callback, "run_started", run_type="pipeline", config_path=str(config_path))
     try:
@@ -92,7 +96,7 @@ def run_pipeline(config_path: Path, event_callback: EventCallback | None = None)
         emit_event(event_callback, "image_written", name="perturbed_diffused", path=str(perturbed_diffused_path))
 
         deepface_report = None
-        if config.deepface.enabled:
+        if config.deepface.enabled and run_deepface:
             deepface_report = compare_images(
                 original_diffused_path,
                 perturbed_diffused_path,
