@@ -8,3 +8,5 @@ output/
 *.egg-info/
 .env
 .DS_Store
+.venv-linux-gpu/
+subset
