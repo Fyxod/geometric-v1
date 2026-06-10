@@ -8,6 +8,7 @@ Files:
 linux-gpu/
   Readme.md
   install_linux_a6000.sh
+  constraints-a6000.txt
   pipeline.json
   brute.json
   batch_brute.json
@@ -42,7 +43,7 @@ The script will:
 2. If Python 3.11 is missing, download micromamba into `~/.local/bin` and create a local Python 3.11 environment.
 3. Create or reuse `.venv-linux-gpu`.
 4. Install CUDA-enabled PyTorch with pip.
-5. Install core `requirements.txt` with pip while constraining the already-installed PyTorch wheel set.
+5. Install core `requirements.txt` with pip while constraining the already-installed PyTorch wheel set and the Linux A6000 dependency graph.
 6. Install the final `typing-extensions` override needed by PyTorch.
 7. Install UI/backend dependencies from `requirements-ui.txt`.
 8. Verify PyTorch CUDA visibility and TensorFlow import.
@@ -50,6 +51,20 @@ The script will:
 The script does not run `sudo`, `apt`, or any root-level install command.
 
 The installer protects `torch`, `torchvision`, and `torchaudio` after installing them. This matters because otherwise `pip install -r requirements.txt` can replace a working CUDA PyTorch build with a different PyPI Torch build, leaving mismatched packages such as `torchvision` requiring one Torch version while `torch` has been downgraded.
+
+The installer also uses `linux-gpu/constraints-a6000.txt` to keep pip from spending a long time backtracking across `transformers`, `huggingface-hub`, `scipy`, TensorFlow, DeepFace, and related packages. The Torch packages are intentionally not pinned in that file because the installer writes their exact installed versions to a temporary constraints file at runtime.
+
+If you need to test a custom constraints file:
+
+```bash
+LINUX_GPU_CONSTRAINTS=path/to/constraints.txt bash linux-gpu/install_linux_a6000.sh
+```
+
+If the static constraints ever become stale and you want to temporarily disable them:
+
+```bash
+LINUX_GPU_CONSTRAINTS= bash linux-gpu/install_linux_a6000.sh
+```
 
 Dependency note: `albumentations` is pinned to `1.3.1` in the project requirements. Do not upgrade it to `2.x` while using `tensorflow==2.12.1`; `albumentations` 2.x requires `numpy>=1.24.4`, but TensorFlow 2.12.1 requires `numpy<=1.24.3`.
 
@@ -86,7 +101,9 @@ from importlib.metadata import version
 for package in ("torch", "torchvision", "torchaudio"):
     print(f"{package}=={version(package)}")
 PY
-PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu118 python -m pip install -r requirements.txt -c /tmp/geometric_torch_constraints.txt
+PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu118 python -m pip install -r requirements.txt \
+  -c /tmp/geometric_torch_constraints.txt \
+  -c linux-gpu/constraints-a6000.txt
 python -m pip install "typing-extensions>=4.14,<5"
 python -m pip install -r requirements-ui.txt
 ```
@@ -121,7 +138,9 @@ from importlib.metadata import version
 for package in ("torch", "torchvision", "torchaudio"):
     print(f"{package}=={version(package)}")
 PY
-PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu118 python -m pip install -r requirements.txt -c /tmp/geometric_torch_constraints.txt
+PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu118 python -m pip install -r requirements.txt \
+  -c /tmp/geometric_torch_constraints.txt \
+  -c linux-gpu/constraints-a6000.txt
 python -m pip install "typing-extensions>=4.14,<5"
 python -m pip install -r requirements-ui.txt
 ```

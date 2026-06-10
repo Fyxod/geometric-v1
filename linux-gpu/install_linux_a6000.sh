@@ -11,6 +11,7 @@ set -euo pipefail
 PYTHON_BIN="${PYTHON_BIN:-auto}"
 ENV_DIR="${ENV_DIR:-.venv-linux-gpu}"
 PYTORCH_CUDA="${PYTORCH_CUDA:-cu118}"
+LINUX_GPU_CONSTRAINTS="${LINUX_GPU_CONSTRAINTS:-linux-gpu/constraints-a6000.txt}"
 SKIP_TORCH="${SKIP_TORCH:-0}"
 NO_VENV="${NO_VENV:-0}"
 USE_MICROMAMBA_IF_NEEDED="${USE_MICROMAMBA_IF_NEEDED:-1}"
@@ -160,7 +161,17 @@ install_requirements() {
   log "Protecting installed PyTorch packages while resolving project requirements"
   cat "${torch_constraints}"
 
-  if ! PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/${PYTORCH_CUDA}" python -m pip install -r requirements.txt -c "${torch_constraints}"; then
+  constraints_args=(-c "${torch_constraints}")
+  if [[ -n "${LINUX_GPU_CONSTRAINTS}" ]]; then
+    if [[ ! -f "${LINUX_GPU_CONSTRAINTS}" ]]; then
+      rm -f "${torch_constraints}"
+      die "LINUX_GPU_CONSTRAINTS points to a missing file: ${LINUX_GPU_CONSTRAINTS}"
+    fi
+    log "Using Linux GPU dependency constraints: ${LINUX_GPU_CONSTRAINTS}"
+    constraints_args+=(-c "${LINUX_GPU_CONSTRAINTS}")
+  fi
+
+  if ! PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/${PYTORCH_CUDA}" python -m pip install -r requirements.txt "${constraints_args[@]}"; then
     rm -f "${torch_constraints}"
     cat >&2 <<'EOF'
 
@@ -174,6 +185,10 @@ Options:
   2. Make sure your repo is updated, then rerun:
        git pull
        bash linux-gpu/install_linux_a6000.sh
+
+  3. If the static Linux constraints become stale, update them or temporarily
+     disable them:
+       LINUX_GPU_CONSTRAINTS= bash linux-gpu/install_linux_a6000.sh
 
 EOF
     exit 1

@@ -24,6 +24,7 @@ The Ubuntu profile lives in `linux-gpu/` and includes:
 
 - `Readme.md`: Ubuntu A6000 installation and run instructions
 - `install_linux_a6000.sh`: no-root installer for Python 3.11 env, CUDA PyTorch, and project dependencies
+- `constraints-a6000.txt`: Linux GPU pip constraints that prevent resolver backtracking on the A6000 dependency stack
 - `pipeline.json`, `brute.json`, `batch_brute.json`: A6000-oriented configs
 - `parameters.md`: explanation of every parameter change
 
@@ -52,7 +53,7 @@ This project pins `numpy>=1.22,<=1.24.3` because TensorFlow 2.12.1 declares that
 
 The local dashboard adds `fastapi` and `uvicorn[standard]`. They live in `requirements-ui.txt` so pip does not try to solve TensorFlow's older `typing-extensions` metadata and FastAPI's newer `typing-extensions` metadata in the same transaction. Install core requirements first, then the final `typing-extensions` override, then UI requirements.
 
-PyTorch is not listed directly in `requirements.txt` because the right wheel depends on the laptop's CPU/GPU/CUDA setup. Install the correct PyTorch wheel before `requirements.txt`; otherwise packages such as `accelerate` may cause pip to pull or replace Torch with a default build. The `linux-gpu/install_linux_a6000.sh` script protects the installed `torch`, `torchvision`, and `torchaudio` versions with a temporary constraints file before installing the rest of the requirements. If you change PyTorch after installing requirements, rerun:
+PyTorch is not listed directly in `requirements.txt` because the right wheel depends on the laptop's CPU/GPU/CUDA setup. Install the correct PyTorch wheel before `requirements.txt`; otherwise packages such as `accelerate` may cause pip to pull or replace Torch with a default build. The `linux-gpu/install_linux_a6000.sh` script protects the installed `torch`, `torchvision`, and `torchaudio` versions with a temporary constraints file before installing the rest of the requirements. On Ubuntu A6000 installs it also passes `linux-gpu/constraints-a6000.txt` to prevent pip `resolution-too-deep` backtracking across the Diffusers, Transformers, TensorFlow, and DeepFace stack. If you change PyTorch after installing requirements, rerun:
 
 ```powershell
 python -m pip install "typing-extensions>=4.14,<5"
