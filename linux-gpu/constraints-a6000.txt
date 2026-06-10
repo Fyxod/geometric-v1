@@ -22,6 +22,26 @@ tensorflow==2.12.1
 keras==2.12.0
 albumentations==1.3.1
 
+# TensorFlow 2.12 transitive pins. In particular, wrapt 1.13.x is not Python
+# 3.11-compatible because it imports inspect.formatargspec during metadata
+# generation, so keep wrapt on a cp311 wheel release.
+absl-py==2.4.0
+astunparse==1.6.3
+flatbuffers==25.12.19
+gast==0.4.0
+google-pasta==0.2.0
+grpcio==1.74.0
+h5py==3.16.0
+libclang==18.1.1
+opt-einsum==3.4.0
+six==1.17.0
+tensorboard==2.12.3
+tensorflow-estimator==2.12.0
+tensorflow-io-gcs-filesystem==0.37.1
+termcolor==3.3.0
+typing-extensions==4.5.0
+wrapt==1.14.2
+
 jax==0.4.38
 jaxlib==0.4.38
 ml-dtypes==0.5.3
@@ -30,6 +50,16 @@ protobuf==4.25.8
 scikit-image==0.21.0
 scikit-learn==1.3.2
 qudida==0.0.4
+imageio==2.37.3
+lazy-loader==0.5
+PyWavelets==1.8.0
+tifffile==2026.3.3
 pandas==2.3.3
 retina-face==0.0.18
 mtcnn==1.0.0
+gdown==5.2.2
+fire==0.7.1
+gunicorn==26.0.0
+lightdsa==0.0.3
+lightecc==0.0.7
+lightphe==0.0.25

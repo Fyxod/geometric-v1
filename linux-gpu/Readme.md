@@ -54,6 +54,8 @@ The installer protects `torch`, `torchvision`, and `torchaudio` after installing
 
 The installer also uses `linux-gpu/constraints-a6000.txt` to keep pip from spending a long time backtracking across `transformers`, `huggingface-hub`, `scipy`, TensorFlow, DeepFace, and related packages. The Torch packages are intentionally not pinned in that file because the installer writes their exact installed versions to a temporary constraints file at runtime.
 
+The constraints also pin `wrapt==1.14.2`. Older `wrapt` source releases, such as `1.13.x`, do not support Python 3.11 metadata generation because they import the removed `inspect.formatargspec` API.
+
 If you need to test a custom constraints file:
 
 ```bash
