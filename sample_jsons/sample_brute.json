@@ -10,6 +10,7 @@
     "attempt_seed_range": "Inclusive min/max range used for random attempt seeds.",
     "resume": "true safely continues an interrupted brute run. Completed run folders are skipped; incomplete run folders are moved aside before retrying that run number.",
     "save_unsuccessful": "For actual failures only: false trims generated image files and keeps report.json plus sampled_config.json. Threshold failures are always saved under unsuccessful.",
+    "deepface_worker": "Persistent DeepFace worker settings. Enabled keeps one subprocess warm across attempts so model weights are not reloaded every run. max_attempts_per_worker recycles the worker periodically to reduce native-library crash risk.",
     "ranges": "Per-perturbation parameter ranges. Only enabled perturbations from pipeline.json are sampled."
   },
   "pipeline_config": "pipeline.json",
@@ -21,6 +22,12 @@
   "attempt_seed_range": [1, 2147483647],
   "resume": true,
   "save_unsuccessful": true,
+  "deepface_worker": {
+    "enabled": true,
+    "max_attempts_per_worker": 100,
+    "timeout_seconds": 600,
+    "restart_on_failure": true
+  },
   "ranges": {
     "homography": {
       "strength": [0.01, 0.08]

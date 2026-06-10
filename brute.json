@@ -8,6 +8,12 @@
   "attempt_seed_range": [1, 2147483647],
   "resume": true,
   "save_unsuccessful": true,
+  "deepface_worker": {
+    "enabled": true,
+    "max_attempts_per_worker": 100,
+    "timeout_seconds": 600,
+    "restart_on_failure": true
+  },
   "ranges": {
     "homography": {
       "strength": [0.01, 0.08]

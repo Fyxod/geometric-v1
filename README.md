@@ -254,7 +254,14 @@ Module form:
 python -m geometric_v1.brute_force --config brute.json
 ```
 
-On long brute-force runs, DeepFace comparison is isolated in a short-lived subprocess for each attempt. Diffusion still runs in the main brute-force process so the diffusion pipeline cache remains warm, but TensorFlow/DeepFace native crashes cannot kill the whole brute run. If a DeepFace subprocess exits with an error or segmentation fault, that attempt is saved under `failures` and the run can continue or resume.
+On long brute-force runs, DeepFace comparison is isolated in a persistent worker subprocess. Diffusion still runs in the main brute-force process so the diffusion pipeline cache remains warm, while DeepFace model weights stay loaded across attempts. If the DeepFace worker exits with an error or segmentation fault, that attempt is saved under `failures`, the worker is restarted, and the run can continue or resume.
+
+The `deepface_worker` block controls that subprocess:
+
+- `enabled`: use the persistent worker. Set `false` to fall back to one fresh DeepFace subprocess per attempt.
+- `max_attempts_per_worker`: recycle the worker after this many attempts. Lower values are safer; higher values avoid more reloads.
+- `timeout_seconds`: maximum time to wait for one DeepFace comparison before marking that attempt as a failure.
+- `restart_on_failure`: retry once in a fresh worker if the worker exits or crashes.
 
 `brute.json` controls only:
 
@@ -264,6 +271,7 @@ On long brute-force runs, DeepFace comparison is isolated in a short-lived subpr
 - success threshold, such as `50.0`
 - random seed behavior
 - safe resume behavior
+- persistent DeepFace worker lifecycle
 - parameter ranges for perturbation fields
 - whether error/failure runs keep any full image files generated before the error
 

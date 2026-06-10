@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import hashlib
 import json
 import os
+import queue
 import random
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import uuid
+from collections import deque
 from contextlib import suppress
 from copy import deepcopy
 from dataclasses import dataclass
@@ -41,6 +46,7 @@ class BruteConfig:
     attempt_seed_range: tuple[int, int]
     resume: bool
     save_unsuccessful: bool
+    deepface_worker: dict[str, Any]
     ranges: dict[str, dict[str, list[float | int]]]
 
 
@@ -72,6 +78,9 @@ def load_brute_config(path: Path) -> BruteConfig:
     ranges = data.get("ranges", {})
     if not isinstance(ranges, dict):
         raise ValueError("ranges must be an object")
+    deepface_worker = data.get("deepface_worker", {})
+    if not isinstance(deepface_worker, dict):
+        raise ValueError("deepface_worker must be an object when provided")
 
     return BruteConfig(
         config_path=path,
@@ -84,6 +93,12 @@ def load_brute_config(path: Path) -> BruteConfig:
         attempt_seed_range=(min_seed, max_seed),
         resume=bool(data.get("resume", False)),
         save_unsuccessful=bool(data.get("save_unsuccessful", True)),
+        deepface_worker={
+            "enabled": bool(deepface_worker.get("enabled", True)),
+            "max_attempts_per_worker": int(deepface_worker.get("max_attempts_per_worker", 100)),
+            "timeout_seconds": float(deepface_worker.get("timeout_seconds", 600.0)),
+            "restart_on_failure": bool(deepface_worker.get("restart_on_failure", True)),
+        },
         ranges=ranges,
     )
 
@@ -234,6 +249,144 @@ def _deepface_score(report: dict[str, Any]) -> tuple[float | None, int, list[str
     return sum(values) / len(values), len(values), errored_models
 
 
+class _PersistentDeepFaceWorker:
+    def __init__(self, worker_config: dict[str, Any]) -> None:
+        self.max_attempts = max(1, int(worker_config.get("max_attempts_per_worker", 100)))
+        self.timeout_seconds = max(1.0, float(worker_config.get("timeout_seconds", 600.0)))
+        self.restart_on_failure = bool(worker_config.get("restart_on_failure", True))
+        self.process: subprocess.Popen[str] | None = None
+        self.stdout_queue: queue.Queue[str | None] = queue.Queue()
+        self.stderr_tail: deque[str] = deque(maxlen=80)
+        self.attempts_in_process = 0
+        atexit.register(self.close)
+
+    def _reader(self, stream, target_queue: queue.Queue[str | None] | None = None) -> None:
+        try:
+            for line in stream:
+                if target_queue is None:
+                    self.stderr_tail.append(line.rstrip())
+                else:
+                    target_queue.put(line)
+        finally:
+            if target_queue is not None:
+                target_queue.put(None)
+
+    def _env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env["CUDA_VISIBLE_DEVICES"] = "-1"
+        env.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+        env.setdefault("TF_NUM_INTRAOP_THREADS", "1")
+        env.setdefault("TF_NUM_INTEROP_THREADS", "1")
+        env.setdefault("OMP_NUM_THREADS", "1")
+        return env
+
+    def start(self) -> None:
+        self.close()
+        self.stdout_queue = queue.Queue()
+        self.stderr_tail = deque(maxlen=80)
+        self.process = subprocess.Popen(
+            [sys.executable, "-m", "geometric_v1.deepface_worker"],
+            cwd=str(Path(__file__).resolve().parents[1]),
+            env=self._env(),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        assert self.process.stdout is not None
+        assert self.process.stderr is not None
+        threading.Thread(target=self._reader, args=(self.process.stdout, self.stdout_queue), daemon=True).start()
+        threading.Thread(target=self._reader, args=(self.process.stderr, None), daemon=True).start()
+        self.attempts_in_process = 0
+
+    def close(self) -> None:
+        process = self.process
+        self.process = None
+        if process is None:
+            return
+        if process.poll() is None:
+            with suppress(Exception):
+                assert process.stdin is not None
+                request_id = f"shutdown-{uuid.uuid4().hex}"
+                process.stdin.write(json.dumps({"id": request_id, "type": "shutdown"}) + "\n")
+                process.stdin.flush()
+            with suppress(Exception):
+                process.wait(timeout=5)
+        if process.poll() is None:
+            with suppress(Exception):
+                process.terminate()
+            with suppress(Exception):
+                process.wait(timeout=5)
+        if process.poll() is None:
+            with suppress(Exception):
+                process.kill()
+
+    def _stderr_summary(self) -> str:
+        return "\n".join(self.stderr_tail).strip()
+
+    def _read_response(self, request_id: str) -> dict[str, Any]:
+        deadline = time.monotonic() + self.timeout_seconds
+        while True:
+            process = self.process
+            if process is None:
+                raise RuntimeError("DeepFace worker is not running")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"DeepFace worker timed out after {self.timeout_seconds:.1f}s")
+            if process.poll() is not None and self.stdout_queue.empty():
+                detail = self._stderr_summary()
+                raise RuntimeError(f"DeepFace worker exited with code {process.returncode}: {detail}")
+            try:
+                line = self.stdout_queue.get(timeout=min(0.25, remaining))
+            except queue.Empty:
+                continue
+            if line is None:
+                continue
+            try:
+                response = json.loads(line)
+            except json.JSONDecodeError:
+                self.stderr_tail.append(f"non-json stdout: {line.rstrip()}")
+                continue
+            if response.get("id") == request_id:
+                return response
+
+    def compare(self, image_a: Path, image_b: Path, sampled_config_path: Path) -> dict[str, Any]:
+        last_error: Exception | None = None
+        attempts = 2 if self.restart_on_failure else 1
+        for retry_index in range(attempts):
+            if self.process is None or self.process.poll() is not None or self.attempts_in_process >= self.max_attempts:
+                self.start()
+            request_id = f"deepface-{uuid.uuid4().hex}"
+            request = {
+                "id": request_id,
+                "image_a": str(image_a),
+                "image_b": str(image_b),
+                "config": str(sampled_config_path),
+            }
+            try:
+                assert self.process is not None and self.process.stdin is not None
+                self.process.stdin.write(json.dumps(request) + "\n")
+                self.process.stdin.flush()
+                response = self._read_response(request_id)
+                self.attempts_in_process += 1
+                if not response.get("ok"):
+                    raise RuntimeError(str(response.get("error", "DeepFace worker failed")))
+                result = response["result"]
+                execution = result.setdefault("execution", {})
+                if isinstance(execution, dict):
+                    execution["persistent_worker"] = True
+                    execution["worker_reused_attempts"] = self.attempts_in_process
+                    execution["max_attempts_per_worker"] = self.max_attempts
+                return result
+            except Exception as exc:
+                last_error = exc
+                self.close()
+                if retry_index + 1 >= attempts:
+                    break
+        raise RuntimeError(f"{type(last_error).__name__}: {last_error}")
+
+
 def _deepface_error_report(
     image_a: Path,
     image_b: Path,
@@ -328,6 +481,7 @@ def _run_deepface_isolated(
     sampled_config_path: Path,
     event_callback: EventCallback | None,
     event_context: dict[str, Any],
+    worker: _PersistentDeepFaceWorker | None = None,
 ) -> dict[str, Any]:
     outputs = report.get("outputs", {})
     image_a = Path(str(outputs.get("original_diffused", "")))
@@ -348,6 +502,22 @@ def _run_deepface_isolated(
 
     started = time.perf_counter()
     output_path = Path(str(report.get("output_dir", sampled_config_path.parent))) / "deepface_report.json"
+    if worker is not None:
+        try:
+            deepface_report = worker.compare(image_a, image_b, sampled_config_path)
+        except Exception as exc:
+            error = f"DeepFace worker failed: {type(exc).__name__}: {exc}"
+            deepface_report = _deepface_error_report(
+                image_a,
+                image_b,
+                deepface_config,
+                error,
+                time.perf_counter() - started,
+            )
+        _write_json(output_path, deepface_report)
+        _emit_deepface_report_events(event_callback, event_context, deepface_report)
+        return deepface_report
+
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = "-1"
     env.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
@@ -639,11 +809,18 @@ def run_brute_force(
         "attempt_seed_range": list(config.attempt_seed_range),
         "resume": config.resume,
         "save_unsuccessful": config.save_unsuccessful,
+        "deepface_worker": config.deepface_worker,
         "diffusion": diffusion_report,
         "attempts": [],
     }
     stopped = False
     score_values: list[tuple[int, float, str, str]] = []
+    pipeline_deepface_enabled = load_pipeline_config(config.pipeline_config).deepface.enabled
+    deepface_worker = (
+        _PersistentDeepFaceWorker(config.deepface_worker)
+        if pipeline_deepface_enabled and bool(config.deepface_worker.get("enabled", True))
+        else None
+    )
 
     for attempt in range(config.trials):
         if is_stop_requested(stop_requested):
@@ -741,6 +918,7 @@ def run_brute_force(
                     sampled_config_path,
                     event_callback,
                     {"stage": "pipeline", "run_number": attempt, "run_name": run_name},
+                    worker=deepface_worker,
                 )
         except Exception as exc:  # Keep going so one bad sample does not stop the search.
             pipeline_error = f"{type(exc).__name__}: {exc}"
@@ -837,6 +1015,8 @@ def run_brute_force(
     brute_report["elapsed_seconds"] = time.perf_counter() - started
     brute_report["summary"] = _summarize_attempts(brute_report["attempts"])
     _write_json(brute_report_path, brute_report)
+    if deepface_worker is not None:
+        deepface_worker.close()
     with suppress(OSError):
         working_dir.rmdir()
     emit_event(
