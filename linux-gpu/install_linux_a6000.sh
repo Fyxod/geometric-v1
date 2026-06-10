@@ -33,7 +33,8 @@ die() {
 python_is_311() {
   "$1" - <<'PY' >/dev/null 2>&1
 import sys
-raise SystemExit(0 if sys.version_info[:2] == (3, 11) else 1)
+is_stable_311 = sys.version_info[:2] == (3, 11) and sys.version_info.releaselevel == "final"
+raise SystemExit(0 if is_stable_311 else 1)
 PY
 }
 
@@ -132,12 +133,35 @@ install_torch() {
   esac
 }
 
+write_torch_constraints() {
+  local constraints_path="$1"
+  python - "${constraints_path}" <<'PY'
+import sys
+from importlib.metadata import PackageNotFoundError, version
+
+path = sys.argv[1]
+packages = ("torch", "torchvision", "torchaudio")
+with open(path, "w", encoding="utf-8") as handle:
+    for package in packages:
+        try:
+            handle.write(f"{package}=={version(package)}\n")
+        except PackageNotFoundError:
+            pass
+PY
+}
+
 install_requirements() {
   log "Installing core project requirements with pip"
   if ! command -v git >/dev/null 2>&1; then
     die "git is required because requirements.txt installs the current Diffusers main branch for Flux2KleinPipeline."
   fi
-  if ! python -m pip install -r requirements.txt; then
+  torch_constraints="$(mktemp)"
+  write_torch_constraints "${torch_constraints}"
+  log "Protecting installed PyTorch packages while resolving project requirements"
+  cat "${torch_constraints}"
+
+  if ! PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/${PYTORCH_CUDA}" python -m pip install -r requirements.txt -c "${torch_constraints}"; then
+    rm -f "${torch_constraints}"
     cat >&2 <<'EOF'
 
 The dependency install failed. On no-root servers, the most common cause is a pip
@@ -154,6 +178,7 @@ Options:
 EOF
     exit 1
   fi
+  rm -f "${torch_constraints}"
 
   python -m pip install "typing-extensions>=4.14,<5"
   log "Installing UI/backend requirements with pip"
@@ -170,10 +195,9 @@ verify_gpu() {
 }
 
 verify_python_stack() {
-  log "Verifying Python, PyTorch, CUDA, TensorFlow, and package imports"
+  log "Verifying PyTorch and CUDA"
   python - <<'PY'
 import sys
-import tensorflow as tf
 import torch
 
 print("python", sys.version)
@@ -184,6 +208,12 @@ if torch.cuda.is_available():
     print("gpu", torch.cuda.get_device_name(0))
     props = torch.cuda.get_device_properties(0)
     print("total_vram_gb", round(props.total_memory / (1024 ** 3), 2))
+PY
+
+  log "Verifying TensorFlow import separately with CUDA hidden"
+  CUDA_VISIBLE_DEVICES="-1" python - <<'PY'
+import tensorflow as tf
+
 print("tensorflow", tf.__version__)
 PY
 }

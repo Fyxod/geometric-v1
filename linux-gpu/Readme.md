@@ -24,7 +24,7 @@ linux-gpu/
 - You do not need `sudo`.
 - You do not need `apt`.
 - `git` is available on the server path. The FLUX.2 Klein pipeline currently requires installing Diffusers from the Hugging Face GitHub branch.
-- Python 3.11 is used for this project. If Python 3.11 is missing, the install script can create a local Python 3.11 environment through micromamba in your home directory.
+- Stable/final Python 3.11 is used for this project. If Python 3.11 is missing or the server only has a pre-release build such as `3.11.0rc1`, the install script can create a local Python 3.11 environment through micromamba in your home directory.
 
 The A6000 has 48 GB VRAM, so the configs in this folder use a larger diffusion size than the laptop defaults while still avoiding aggressive multi-combo GPU parallelism.
 
@@ -42,12 +42,14 @@ The script will:
 2. If Python 3.11 is missing, download micromamba into `~/.local/bin` and create a local Python 3.11 environment.
 3. Create or reuse `.venv-linux-gpu`.
 4. Install CUDA-enabled PyTorch with pip.
-5. Install core `requirements.txt` with pip.
+5. Install core `requirements.txt` with pip while constraining the already-installed PyTorch wheel set.
 6. Install the final `typing-extensions` override needed by PyTorch.
 7. Install UI/backend dependencies from `requirements-ui.txt`.
 8. Verify PyTorch CUDA visibility and TensorFlow import.
 
 The script does not run `sudo`, `apt`, or any root-level install command.
+
+The installer protects `torch`, `torchvision`, and `torchaudio` after installing them. This matters because otherwise `pip install -r requirements.txt` can replace a working CUDA PyTorch build with a different PyPI Torch build, leaving mismatched packages such as `torchvision` requiring one Torch version while `torch` has been downgraded.
 
 Dependency note: `albumentations` is pinned to `1.3.1` in the project requirements. Do not upgrade it to `2.x` while using `tensorflow==2.12.1`; `albumentations` 2.x requires `numpy>=1.24.4`, but TensorFlow 2.12.1 requires `numpy<=1.24.3`.
 
@@ -79,7 +81,12 @@ python3.11 -m venv .venv-linux-gpu
 source .venv-linux-gpu/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-python -m pip install -r requirements.txt
+python - <<'PY' > /tmp/geometric_torch_constraints.txt
+from importlib.metadata import version
+for package in ("torch", "torchvision", "torchaudio"):
+    print(f"{package}=={version(package)}")
+PY
+PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu118 python -m pip install -r requirements.txt -c /tmp/geometric_torch_constraints.txt
 python -m pip install "typing-extensions>=4.14,<5"
 python -m pip install -r requirements-ui.txt
 ```
@@ -109,7 +116,12 @@ micromamba activate "$PWD/.venv-linux-gpu"
 
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-python -m pip install -r requirements.txt
+python - <<'PY' > /tmp/geometric_torch_constraints.txt
+from importlib.metadata import version
+for package in ("torch", "torchvision", "torchaudio"):
+    print(f"{package}=={version(package)}")
+PY
+PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu118 python -m pip install -r requirements.txt -c /tmp/geometric_torch_constraints.txt
 python -m pip install "typing-extensions>=4.14,<5"
 python -m pip install -r requirements-ui.txt
 ```
@@ -119,13 +131,17 @@ Verify:
 ```bash
 python - <<'PY'
 import torch
-import tensorflow as tf
 
 print("torch", torch.__version__)
 print("cuda available", torch.cuda.is_available())
 if torch.cuda.is_available():
     print("gpu", torch.cuda.get_device_name(0))
     print("cuda", torch.version.cuda)
+PY
+
+CUDA_VISIBLE_DEVICES=-1 python - <<'PY'
+import tensorflow as tf
+
 print("tensorflow", tf.__version__)
 PY
 ```
