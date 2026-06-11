@@ -460,6 +460,7 @@ Explanatory examples live in `sample_jsons/`:
 sample_jsons/sample_pipeline.json
 sample_jsons/sample_brute.json
 sample_jsons/sample_batch_brute.json
+sample_jsons/sample_loss.json
 ```
 
 ## Config Shape

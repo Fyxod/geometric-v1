@@ -1,0 +1,200 @@
+{
+  "_notes": {
+    "purpose": "Example loss.json. loss.json controls black-box loss-guided optimization for one image and one prompt.",
+    "pipeline_config": "Optional reference pipeline config. When diffusion/deepface use from_pipeline=true, those blocks are copied from this file.",
+    "input": "Image to optimize. Overrides pipeline_config.input when provided.",
+    "output_dir": "Parent folder for output/loss_run_<timestamp>. The runner creates a timestamped loss run folder inside this directory.",
+    "prompt": "Text prompt used for both cached original diffusion and every perturbed diffusion candidate.",
+    "seed": "Base seed for perturbation seeds, optimizer initialization, and diffusion config fallback.",
+    "perturbations": "Base perturbation templates. The optimizer updates only fields listed in parameters.bounds.",
+    "diffusion": "Set from_pipeline=true to reuse pipeline.json diffusion. Or provide a full diffusion block with cpu/device/gpu_index/models.",
+    "deepface": "Set from_pipeline=true to reuse pipeline.json DeepFace settings. Or provide enabled, detector_backend, distance_metric, workers, and models.",
+    "deepface_allow_parallel": "true allows alpha_pre/alpha_post DeepFace model checks to run with parallel workers. false is simpler and less memory hungry.",
+    "optimizer.type": "Supported values: spsa, random_search, differential_evolution.",
+    "optimizer.iterations": "For SPSA, number of update steps. Each SPSA step evaluates plus, minus, and current candidates.",
+    "optimizer.learning_rate": "SPSA normalized-space step size. Lower is safer; higher explores more aggressively.",
+    "optimizer.finite_difference_epsilon": "Alias/fallback for spsa_delta.",
+    "optimizer.spsa_delta": "SPSA plus/minus perturbation size in normalized parameter space.",
+    "optimizer.patience": "If greater than 0, stop after this many non-improving updates.",
+    "optimizer.random_restarts": "Number of starting points. Restarts after the first use random initialization.",
+    "optimizer.save_every": "Write loss_history.json every N evaluations. Use 1 for safest long-run progress saving.",
+    "optimizer.stop.alpha_post_below": "Stop when the best alpha_post falls at or below this value.",
+    "optimizer.stop.loss_below": "Optional absolute loss stop threshold. null disables it.",
+    "objective.use_alpha_pre": "true includes alpha_pre guardrail. When false, alpha_pre is not computed or penalized.",
+    "objective.use_beta": "true includes beta visual constraints. When false, beta metrics are not computed or penalized.",
+    "objective.alpha_post": "Main attack objective. Lower alpha_post is better. Enabled by default.",
+    "objective.alpha_pre": "Pre-diffusion identity guardrail. Penalizes alpha_pre below target.",
+    "objective.beta.use_psnr": "true computes and penalizes PSNR below target.",
+    "objective.beta.use_ssim": "true computes and penalizes SSIM below target.",
+    "objective.beta.use_fid": "true computes the lightweight single-image RGB FID approximation and penalizes values above target.",
+    "objective.beta.use_lpips": "true computes LPIPS and penalizes values above target. Requires optional lpips package.",
+    "objective.beta.*.weight": "Loss multiplier for that term. Higher means the optimizer cares more about that constraint.",
+    "objective.parameter_regularization": "Penalizes moving far away from the initial normalized parameter vector.",
+    "parameters.initialization": "fixed uses initial_values/templates. random starts from a random point inside bounds.",
+    "parameters.initial_values": "Starting parameter values for fixed initialization. Can be nested by method name.",
+    "parameters.bounds": "Optimizable fields and their min/max ranges. Integer fields such as grid and coefficients are rounded."
+  },
+  "pipeline_config": "../pipeline.json",
+  "input": "../samples/image.png",
+  "output_dir": "../output",
+  "prompt": "add sunglasses",
+  "seed": 42,
+  "perturbations": [
+    {
+      "method": "homography",
+      "enabled": false,
+      "strength": 0.04
+    },
+    {
+      "method": "thin-plate-spline",
+      "enabled": true,
+      "strength": 0.002,
+      "grid": 7
+    },
+    {
+      "method": "delaunay",
+      "enabled": true,
+      "strength": 0.008,
+      "grid": 8
+    },
+    {
+      "method": "fft-phase",
+      "enabled": true,
+      "strength": 2500.0,
+      "coefficients": 6
+    },
+    {
+      "method": "elastic",
+      "enabled": true,
+      "strength": 0.005,
+      "sigma": 12.0
+    },
+    {
+      "method": "rolling-shutter",
+      "enabled": true,
+      "strength": 0.004,
+      "rolling_frequency": 1.5,
+      "rolling_phase": 0.0,
+      "rolling_shear": 0.02,
+      "rolling_acceleration": 0.0
+    }
+  ],
+  "diffusion": {
+    "from_pipeline": true
+  },
+  "deepface": {
+    "from_pipeline": true
+  },
+  "deepface_allow_parallel": false,
+  "optimizer": {
+    "type": "spsa",
+    "iterations": 8,
+    "learning_rate": 0.06,
+    "finite_difference_epsilon": 0.08,
+    "spsa_delta": 0.08,
+    "patience": 0,
+    "random_restarts": 1,
+    "save_every": 1,
+    "stop": {
+      "alpha_post_below": 50.0,
+      "loss_below": null
+    }
+  },
+  "objective": {
+    "use_alpha_pre": true,
+    "use_beta": true,
+    "missing_metric_penalty": 10000.0,
+    "alpha_post": {
+      "enabled": true,
+      "weight": 1.0,
+      "target": 50.0
+    },
+    "alpha_pre": {
+      "enabled": true,
+      "target": 90.0,
+      "weight": 5.0
+    },
+    "beta": {
+      "enabled": true,
+      "use_psnr": true,
+      "use_ssim": true,
+      "use_fid": false,
+      "use_lpips": false,
+      "psnr": {
+        "enabled": true,
+        "target": 28.0,
+        "weight": 2.0
+      },
+      "ssim": {
+        "enabled": true,
+        "target": 0.88,
+        "weight": 25.0
+      },
+      "fid": {
+        "enabled": false,
+        "target": 5.0,
+        "weight": 0.1
+      },
+      "lpips": {
+        "enabled": false,
+        "target": 0.25,
+        "weight": 2.0
+      }
+    },
+    "parameter_regularization": {
+      "enabled": true,
+      "weight": 0.01
+    }
+  },
+  "parameters": {
+    "initialization": "fixed",
+    "initial_values": {
+      "thin-plate-spline": {
+        "strength": 0.002,
+        "grid": 7
+      },
+      "delaunay": {
+        "strength": 0.008,
+        "grid": 8
+      },
+      "fft-phase": {
+        "strength": 2500.0,
+        "coefficients": 6
+      },
+      "elastic": {
+        "strength": 0.005,
+        "sigma": 12.0
+      },
+      "rolling-shutter": {
+        "strength": 0.004,
+        "rolling_frequency": 1.5,
+        "rolling_shear": 0.02,
+        "rolling_acceleration": 0.0
+      }
+    },
+    "bounds": {
+      "thin-plate-spline": {
+        "strength": [0.0, 0.006],
+        "grid": [5, 9]
+      },
+      "delaunay": {
+        "strength": [0.0, 0.012],
+        "grid": [6, 12]
+      },
+      "fft-phase": {
+        "strength": [0.0, 10000.0],
+        "coefficients": [4, 16]
+      },
+      "elastic": {
+        "strength": [0.0, 0.012],
+        "sigma": [6.0, 18.0]
+      },
+      "rolling-shutter": {
+        "strength": [0.0, 0.012],
+        "rolling_frequency": [0.5, 3.0],
+        "rolling_shear": [0.0, 0.06],
+        "rolling_acceleration": [-0.03, 0.03]
+      }
+    }
+  }
+}
