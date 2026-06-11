@@ -25,6 +25,7 @@ from .config import (
     _deepface_from_dict,
     _diffusion_from_dict,
     _perturbation_from_dict,
+    perturbation_to_report,
 )
 from .deepface_compare import compare_images
 from .diffusion import edit_image, resolve_device, selected_diffusion_model
@@ -605,7 +606,7 @@ class LossRunner:
             "metrics": metrics,
             "alpha_pre_report": alpha_pre_report,
             "alpha_post_report": alpha_post_report,
-            "perturbations": [asdict(step) for step in steps],
+            "perturbations": [perturbation_to_report(step) for step in steps],
             "diffusion": {
                 **asdict(self.config.diffusion),
                 "used_model": selected_model["name"],

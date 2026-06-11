@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from .config import load_pipeline_config
+from .config import load_pipeline_config, perturbation_to_report
 from .diffusion import edit_image, resolve_device, selected_diffusion_model
 from .events import EventCallback, emit_event
 from .image_io import load_image, load_pil_image, save_image, save_pil
@@ -41,7 +41,7 @@ def run_perturb_only(config_path: Path, event_callback: EventCallback | None = N
             "output_dir": str(config.output_dir),
             "seed": config.seed,
             "elapsed_seconds": time.perf_counter() - started,
-            "perturbations": [asdict(step) for step in config.perturbations],
+            "perturbations": [perturbation_to_report(step) for step in config.perturbations],
             "outputs": {
                 "original": str(original_path),
                 "perturbed": str(perturbed_path),

@@ -29,6 +29,26 @@ class PerturbationStep:
     rolling_acceleration: float = 0.0
 
 
+PERTURBATION_REPORT_FIELDS = {
+    "homography": (),
+    "thin-plate-spline": ("grid",),
+    "delaunay": ("grid",),
+    "fft-phase": ("coefficients",),
+    "elastic": ("sigma",),
+    "rolling-shutter": (
+        "rolling_frequency",
+        "rolling_phase",
+        "rolling_shear",
+        "rolling_acceleration",
+    ),
+}
+
+
+def perturbation_to_report(step: PerturbationStep) -> dict[str, Any]:
+    fields = ("method", "enabled", "strength", "seed") + PERTURBATION_REPORT_FIELDS.get(step.method, ())
+    return {field_name: getattr(step, field_name) for field_name in fields}
+
+
 @dataclass(frozen=True)
 class InstructPix2PixConfig:
     enabled: bool = True

@@ -8,7 +8,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from .config import load_pipeline_config
+from .config import load_pipeline_config, perturbation_to_report
 from .deepface_compare import compare_images
 from .diffusion import edit_image, edit_images, resolve_device, selected_diffusion_model
 from .events import EventCallback, emit_event
@@ -114,7 +114,7 @@ def run_pipeline(
             "seed": config.seed,
             "elapsed_seconds": time.perf_counter() - started,
             "deepface": deepface_report,
-            "perturbations": [asdict(step) for step in config.perturbations],
+            "perturbations": [perturbation_to_report(step) for step in config.perturbations],
             "diffusion": diffusion_report,
             "outputs": {
                 "original": str(original_path),
