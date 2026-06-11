@@ -46,7 +46,8 @@ The script will:
 5. Install core `requirements.txt` with pip while constraining the already-installed PyTorch wheel set and the Linux A6000 dependency graph.
 6. Install the final `typing-extensions` override needed by PyTorch.
 7. Install UI/backend dependencies from `requirements-ui.txt`.
-8. Verify PyTorch CUDA visibility and TensorFlow import.
+8. Optionally install LPIPS when `INSTALL_LPIPS=1`.
+9. Verify PyTorch CUDA visibility and TensorFlow import.
 
 The script does not run `sudo`, `apt`, or any root-level install command.
 
@@ -72,6 +73,14 @@ LINUX_GPU_CONSTRAINTS= bash linux-gpu/install_linux_a6000.sh
 
 Dependency note: `albumentations` is pinned to `1.3.1` in the project requirements. Do not upgrade it to `2.x` while using `tensorflow==2.12.1`; `albumentations` 2.x requires `numpy>=1.24.4`, but TensorFlow 2.12.1 requires `numpy<=1.24.3`.
 
+Loss pipeline note: `geometric_v1.loss_pipeline` does not require new dependencies for PSNR, SSIM, or the optional lightweight single-image FID approximation. LPIPS is optional. If you plan to set `"use_lpips": true` in `loss.json`, install it with:
+
+```bash
+INSTALL_LPIPS=1 bash linux-gpu/install_linux_a6000.sh
+```
+
+The script installs `lpips` with `--no-deps` so pip does not disturb the working CUDA PyTorch stack. Leave `INSTALL_LPIPS` unset for the current stable install path.
+
 FLUX.2 Klein note: `requirements.txt` installs Diffusers with `git+https://github.com/huggingface/diffusers.git` so `Flux2KleinPipeline` is available. If `git` is not installed on the managed server image, ask the cluster/admin team for a module or image that includes Git, or install the dependency from another environment that already has Git.
 
 Default PyTorch wheel target:
@@ -89,6 +98,7 @@ PYTORCH_CUDA=cu126 bash linux-gpu/install_linux_a6000.sh
 PYTORCH_CUDA=cu118 bash linux-gpu/install_linux_a6000.sh
 SKIP_TORCH=1 bash linux-gpu/install_linux_a6000.sh
 USE_MICROMAMBA_IF_NEEDED=0 bash linux-gpu/install_linux_a6000.sh
+INSTALL_LPIPS=1 bash linux-gpu/install_linux_a6000.sh
 ```
 
 Use `SKIP_TORCH=1` if your server image already has a known-good CUDA PyTorch build.
@@ -121,6 +131,8 @@ python -m pip install "typing-extensions>=4.14,<5"
 python -m pip install psutil -c linux-gpu/constraints-a6000.txt
 python -m pip install --no-deps "accelerate>=0.30" -c linux-gpu/constraints-a6000.txt
 python -m pip install -r requirements-ui.txt
+# Optional, only if loss.json uses objective.beta.use_lpips=true:
+python -m pip install --no-deps "lpips>=0.1.4"
 ```
 
 If `python3.11 -m venv` fails because the server Python was built without venv support, run the script normally and let it use micromamba:
@@ -169,6 +181,8 @@ python -m pip install "typing-extensions>=4.14,<5"
 python -m pip install psutil -c linux-gpu/constraints-a6000.txt
 python -m pip install --no-deps "accelerate>=0.30" -c linux-gpu/constraints-a6000.txt
 python -m pip install -r requirements-ui.txt
+# Optional, only if loss.json uses objective.beta.use_lpips=true:
+python -m pip install --no-deps "lpips>=0.1.4"
 ```
 
 Verify:
@@ -211,6 +225,14 @@ Batch brute force:
 ```bash
 python -m geometric_v1.batch_brute_force --config linux-gpu/batch_brute.json
 ```
+
+Loss-guided optimization:
+
+```bash
+python -m geometric_v1.loss_pipeline --config loss.json
+```
+
+By default, `loss.json` keeps `use_lpips` set to `false`, so the base install is enough.
 
 Local UI:
 

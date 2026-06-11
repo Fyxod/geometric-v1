@@ -83,10 +83,12 @@ run_deepface_compare.py
 run_deepface_model_check.py
 run_brute_force.py
 run_batch_brute_force.py
+run_loss_pipeline.py
 run_ui.py
 pipeline.json
 brute.json
 batch_brute.json
+loss.json
 sample_jsons/
 ```
 
@@ -375,6 +377,80 @@ Safe batch reruns:
 If `parallel_combinations` is greater than `1`, multiple image/prompt combos run at the same time with a bounded process pool. Be careful with values above `1`: each combo can run diffusion on the GPU, so CUDA memory pressure can rise quickly.
 
 When `randomize_attempt_seed` is `true` in `brute.json`, batch mode pre-generates unique attempt seeds across the whole batch. For example, `2 images x 2 prompts x 100 trials` produces `400` distinct attempt seeds from `attempt_seed_range`.
+
+## Loss-Guided Optimization
+
+`loss.json` runs a black-box, loss-guided optimizer for one image and one prompt. It is designed for the case where you want the perturbed image to still match the original before diffusion, but to match less after diffusion.
+
+Run:
+
+```powershell
+python run_loss_pipeline.py --config loss.json
+```
+
+Module form:
+
+```powershell
+python -m geometric_v1.loss_pipeline --config loss.json
+```
+
+This is not true end-to-end backpropagation. Current Flux, DeepFace, and the geometric perturbation stack are treated as a black box. The v1 optimizer evaluates candidate perturbation parameters, measures the loss, and updates the next candidate with SPSA by default.
+
+The main terms are:
+
+- `alpha_pre`: identity match percentage between `original.png` and `perturbed.png`. This should stay high so the pre-diffusion perturbation does not simply destroy the person.
+- `alpha_post`: identity match percentage between cached `original_diffused.png` and each iteration's `perturbed_diffused.png`. This is the term the optimizer tries to reduce.
+- `beta`: visual similarity constraints between `original.png` and `perturbed.png`, such as PSNR, SSIM, optional single-image FID, and optional LPIPS.
+
+The default objective is:
+
+```text
+loss =
+  w_alpha_post * alpha_post
+  + w_alpha_pre * max(0, alpha_pre_target - alpha_pre)^2
+  + w_psnr * max(0, psnr_target - psnr)^2
+  + w_ssim * max(0, ssim_target - ssim)^2
+  + w_fid * max(0, fid - fid_target)^2
+  + parameter regularization
+```
+
+Every component can be enabled, disabled, or reweighted from `loss.json`. `alpha_post` is enabled by default because it is the actual attack objective. `alpha_pre` and beta constraints are optional guardrails.
+
+Inside `objective.beta`, the explicit switches `use_psnr`, `use_ssim`, `use_fid`, and `use_lpips` decide whether each beta metric participates. The per-metric `enabled` field is also accepted, but the `use_*` switches are the easiest way to turn terms on and off. LPIPS is not computed unless `use_lpips` is `true`.
+
+Optimizers:
+
+- `spsa`: default black-box optimizer. Each iteration evaluates plus/minus perturbations and estimates a gradient without backpropagating through Flux or DeepFace.
+- `random_search`: random candidates within the configured bounds.
+- `differential_evolution`: SciPy's differential evolution optimizer. This is optional and can be expensive because each candidate runs diffusion and DeepFace.
+
+Output layout:
+
+```text
+output/loss_run_<timestamp>/
+  loss_config.json
+  original.png
+  original_diffused.png
+  best/
+    perturbed.png
+    perturbed_diffused.png
+    report.json
+  iterations/
+    iter_000001/
+      perturbed.png
+      perturbed_diffused.png
+      metrics.json
+  loss_history.json
+  report.json
+```
+
+`original_diffused.png` is generated once and cached, because the original image and prompt do not change. Each candidate iteration generates only a new `perturbed.png`, a new `perturbed_diffused.png`, alpha/beta metrics, and a loss score.
+
+FID note: the built-in FID option is intentionally marked weak for single-image use. Real FID is a distribution metric over many images and usually Inception features. The v1 implementation uses a simple RGB Gaussian distance so you can use it as a rough optional constraint, not as a paper-grade score. LPIPS is also optional and only runs if the `lpips` Python package is installed.
+
+Ubuntu A6000 installs do not need a script change for the default `loss.json` because PSNR, SSIM, and the optional lightweight FID approximation use existing dependencies. If you turn on `objective.beta.use_lpips`, install the optional LPIPS package with `INSTALL_LPIPS=1 bash linux-gpu/install_linux_a6000.sh`.
+
+For a deeper explanation of alpha/beta terms, SPSA, black-box optimization, and how to interpret the reports, see `concepts.md`.
 
 ## Sample Configs
 

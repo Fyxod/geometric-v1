@@ -15,6 +15,7 @@ LINUX_GPU_CONSTRAINTS="${LINUX_GPU_CONSTRAINTS:-linux-gpu/constraints-a6000.txt}
 SKIP_TORCH="${SKIP_TORCH:-0}"
 NO_VENV="${NO_VENV:-0}"
 USE_MICROMAMBA_IF_NEEDED="${USE_MICROMAMBA_IF_NEEDED:-1}"
+INSTALL_LPIPS="${INSTALL_LPIPS:-0}"
 MICROMAMBA_BIN="${MICROMAMBA_BIN:-$HOME/.local/bin/micromamba}"
 MICROMAMBA_ROOT_PREFIX="${MICROMAMBA_ROOT_PREFIX:-$HOME/.local/micromamba}"
 
@@ -225,6 +226,13 @@ EOF
   python -m pip install --no-deps "accelerate>=0.30" "${post_constraints_args[@]}"
   log "Installing UI/backend requirements with pip"
   python -m pip install -r requirements-ui.txt
+
+  if [[ "${INSTALL_LPIPS}" == "1" ]]; then
+    log "Installing optional LPIPS metric package without reopening dependency resolution"
+    python -m pip install --no-deps "lpips>=0.1.4"
+  else
+    log "Skipping optional LPIPS install. Set INSTALL_LPIPS=1 to enable loss.json objective.beta.use_lpips."
+  fi
 }
 
 verify_gpu() {
@@ -277,6 +285,7 @@ Run the A6000 profile:
   python -m geometric_v1.pipeline --config linux-gpu/pipeline.json
   python -m geometric_v1.brute_force --config linux-gpu/brute.json
   python -m geometric_v1.batch_brute_force --config linux-gpu/batch_brute.json
+  python -m geometric_v1.loss_pipeline --config loss.json
 
 EOF
 }

@@ -28,6 +28,7 @@ dependencies = [
 geometric-v1 = "geometric_v1.pipeline:main"
 geometric-v1-brute-force = "geometric_v1.brute_force:main"
 geometric-v1-batch-brute-force = "geometric_v1.batch_brute_force:main"
+geometric-v1-loss-pipeline = "geometric_v1.loss_pipeline:main"
 geometric-v1-ui = "geometric_v1.ui.backend:main"
 
 [tool.setuptools.packages.find]
