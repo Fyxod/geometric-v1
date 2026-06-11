@@ -396,6 +396,14 @@ python -m geometric_v1.loss_pipeline --config loss.json
 
 This is not true end-to-end backpropagation. Current Flux, DeepFace, and the geometric perturbation stack are treated as a black box. The v1 optimizer evaluates candidate perturbation parameters, measures the loss, and updates the next candidate with SPSA by default.
 
+Seed behavior:
+
+- `seed` controls the optimizer RNG, random initialization, perturbation seeds, and diffusion seed for the loss run.
+- `parameters.initialization: "random"` is still reproducible when `seed` is the same. Two runs with the same seed and same config will start from the same random point and follow the same SPSA directions.
+- Set `"randomize_seed": true` to choose one random seed for the whole run before optimization starts.
+- `random_seed_range` controls the inclusive range used by `randomize_seed`.
+- The final `report.json` records `configured_seed`, actual `seed`, `randomize_seed`, and `random_seed_range`.
+
 The main terms are:
 
 - `alpha_pre`: identity match percentage between `original.png` and `perturbed.png`. This should stay high so the pre-diffusion perturbation does not simply destroy the person.

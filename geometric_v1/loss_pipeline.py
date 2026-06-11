@@ -73,6 +73,9 @@ class LossConfig:
     prompt: str
     output_parent: Path
     seed: int
+    configured_seed: int
+    randomize_seed: bool
+    random_seed_range: tuple[int, int]
     perturbation_templates: list[PerturbationStep]
     diffusion: DiffusionConfig
     deepface: DeepFaceConfig
@@ -169,6 +172,39 @@ def _config_block(
     return block
 
 
+def _random_seed_range(data: dict[str, Any]) -> tuple[int, int]:
+    values = data.get("random_seed_range", data.get("seed_range", [1, 2147483647]))
+    if not isinstance(values, list) or len(values) != 2:
+        raise ValueError("random_seed_range must be a two-item list")
+    lower = int(values[0])
+    upper = int(values[1])
+    if lower > upper:
+        raise ValueError("random_seed_range lower value cannot be greater than upper value")
+    return lower, upper
+
+
+def _selected_loss_seed(data: dict[str, Any], reference: dict[str, Any]) -> tuple[int, int, bool, tuple[int, int]]:
+    configured_seed = int(data.get("seed", reference.get("seed", 7)))
+    randomize_seed = bool(data.get("randomize_seed", False))
+    seed_range = _random_seed_range(data)
+    if randomize_seed:
+        seed = random.SystemRandom().randint(seed_range[0], seed_range[1])
+    else:
+        seed = configured_seed
+    return configured_seed, seed, randomize_seed, seed_range
+
+
+def _force_diffusion_seed(values: dict[str, Any], seed: int) -> dict[str, Any]:
+    result = deepcopy(values)
+    result["seed"] = seed
+    models = result.get("models")
+    if isinstance(models, dict):
+        for model_values in models.values():
+            if isinstance(model_values, dict):
+                model_values["seed"] = seed
+    return result
+
+
 def load_loss_config(path: Path) -> LossConfig:
     path = path.resolve()
     data = _read_json(path)
@@ -177,7 +213,12 @@ def load_loss_config(path: Path) -> LossConfig:
     pipeline_path = _resolve(base_dir, str(pipeline_config)).resolve() if pipeline_config else None
     reference = _load_reference_pipeline(pipeline_path)
 
-    seed = int(data.get("seed", reference.get("seed", 7)))
+    configured_seed, seed, randomize_seed, seed_range = _selected_loss_seed(data, reference)
+    data = deepcopy(data)
+    data["configured_seed"] = configured_seed
+    data["seed"] = seed
+    data["randomize_seed"] = randomize_seed
+    data["random_seed_range"] = list(seed_range)
     input_value = data.get("input", reference.get("input"))
     if input_value is None:
         raise ValueError("loss config must include input or pipeline_config with input")
@@ -193,7 +234,7 @@ def load_loss_config(path: Path) -> LossConfig:
         for index, item in enumerate(perturbation_items)
     ]
 
-    diffusion_values = _config_block(data, reference, "diffusion")
+    diffusion_values = _force_diffusion_seed(_config_block(data, reference, "diffusion"), seed)
     deepface_values = _config_block(data, reference, "deepface")
 
     parameter_config = data.get("parameters", {})
@@ -215,6 +256,9 @@ def load_loss_config(path: Path) -> LossConfig:
         prompt=prompt,
         output_parent=_resolve(base_dir, str(data.get("output_dir", "output"))).resolve(),
         seed=seed,
+        configured_seed=configured_seed,
+        randomize_seed=randomize_seed,
+        random_seed_range=seed_range,
         perturbation_templates=perturbations,
         diffusion=_diffusion_from_dict(diffusion_values, seed),
         deepface=_deepface_from_dict(deepface_values),
@@ -663,6 +707,9 @@ class LossRunner:
             "prompt": self.config.prompt,
             "output_dir": str(self.run_dir),
             "seed": self.config.seed,
+            "configured_seed": self.config.configured_seed,
+            "randomize_seed": self.config.randomize_seed,
+            "random_seed_range": list(self.config.random_seed_range),
             "best_iteration": best.get("iteration"),
             "best_parameters": best.get("parameters"),
             "best_alpha_pre": (best.get("metrics") or {}).get("alpha_pre") if isinstance(best.get("metrics"), dict) else None,

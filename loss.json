@@ -4,6 +4,8 @@
   "output_dir": "output",
   "prompt": "add sunglasses",
   "seed": 42,
+  "randomize_seed": false,
+  "random_seed_range": [1, 2147483647],
   "perturbations": [
     {
       "method": "homography",

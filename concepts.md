@@ -112,6 +112,21 @@ parameters -> perturb image -> diffuse image -> compare identity -> loss
 
 The optimizer only sees input parameters and output loss.
 
+## Seeds And Random Starts
+
+`parameters.initialization: "random"` means the initial parameter vector is sampled from the configured bounds. It does not mean every run is automatically different.
+
+If `seed` is the same, the random initial vector, SPSA plus/minus directions, perturbation seeds, and diffusion seed are reproducible. That is why two loss runs with the same config and same seed can have identical early evaluation histories. A longer run is then just the shorter run plus more evaluations.
+
+Use:
+
+```json
+"randomize_seed": true,
+"random_seed_range": [1, 2147483647]
+```
+
+to pick one fresh seed at the start of each loss run. That chosen seed is then applied consistently across the whole run and recorded in `report.json`.
+
 ## SPSA
 
 SPSA means Simultaneous Perturbation Stochastic Approximation. It is a practical black-box optimizer.

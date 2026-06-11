@@ -5,7 +5,9 @@
     "input": "Image to optimize. Overrides pipeline_config.input when provided.",
     "output_dir": "Parent folder for output/loss_run_<timestamp>. The runner creates a timestamped loss run folder inside this directory.",
     "prompt": "Text prompt used for both cached original diffusion and every perturbed diffusion candidate.",
-    "seed": "Base seed for perturbation seeds, optimizer initialization, and diffusion config fallback.",
+    "seed": "Base seed for perturbation seeds, optimizer initialization, and diffusion. Used when randomize_seed is false.",
+    "randomize_seed": "false uses seed exactly. true picks one random seed for the whole run before optimization starts.",
+    "random_seed_range": "Inclusive [min, max] range used only when randomize_seed is true.",
     "perturbations": "Base perturbation templates. The optimizer updates only fields listed in parameters.bounds.",
     "diffusion": "Set from_pipeline=true to reuse pipeline.json diffusion. Or provide a full diffusion block with cpu/device/gpu_index/models.",
     "deepface": "Set from_pipeline=true to reuse pipeline.json DeepFace settings. Or provide enabled, detector_backend, distance_metric, workers, and models.",
@@ -39,6 +41,8 @@
   "output_dir": "../output",
   "prompt": "add sunglasses",
   "seed": 42,
+  "randomize_seed": false,
+  "random_seed_range": [1, 2147483647],
   "perturbations": [
     {
       "method": "homography",
