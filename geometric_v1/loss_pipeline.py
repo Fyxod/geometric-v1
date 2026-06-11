@@ -44,6 +44,8 @@ PARAMETER_FIELDS = {
     "rolling_acceleration",
 }
 
+_LPIPS_MODEL_CACHE: dict[str, Any] = {}
+
 
 @dataclass(frozen=True)
 class ParameterSpec:
@@ -324,14 +326,13 @@ def _fid_rgb(original: np.ndarray, perturbed: np.ndarray) -> float:
 def _lpips_distance(original_path: Path, perturbed_path: Path) -> tuple[float | None, str | None]:
     try:
         import torch
-        import lpips
         from PIL import Image
     except Exception as exc:
         return None, f"{type(exc).__name__}: {exc}"
 
     try:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        loss_fn = lpips.LPIPS(net="alex").to(device)
+        loss_fn = _get_lpips_model(device)
 
         def tensor(path: Path):
             image = Image.open(path).convert("RGB")
@@ -344,6 +345,19 @@ def _lpips_distance(original_path: Path, perturbed_path: Path) -> tuple[float | 
         return float(value.item()), None
     except Exception as exc:
         return None, f"{type(exc).__name__}: {exc}"
+
+
+def _get_lpips_model(device: str):
+    loss_fn = _LPIPS_MODEL_CACHE.get(device)
+    if loss_fn is not None:
+        return loss_fn
+
+    import lpips
+
+    loss_fn = lpips.LPIPS(net="alex").to(device)
+    loss_fn.eval()
+    _LPIPS_MODEL_CACHE[device] = loss_fn
+    return loss_fn
 
 
 def _beta_metrics(
