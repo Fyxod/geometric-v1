@@ -446,6 +446,8 @@ output/loss_run_<timestamp>/
 
 `original_diffused.png` is generated once and cached, because the original image and prompt do not change. Each candidate iteration generates only a new `perturbed.png`, a new `perturbed_diffused.png`, alpha/beta metrics, and a loss score.
 
+Report note: raw identity and visual scores live under `metrics` and `metric_summary`. Values under `loss_components` are objective costs, not raw scores. For example, `alpha_pre_penalty` is `0` when `alpha_pre` is above the configured target.
+
 FID note: the built-in FID option is intentionally marked weak for single-image use. Real FID is a distribution metric over many images and usually Inception features. The v1 implementation uses a simple RGB Gaussian distance so you can use it as a rough optional constraint, not as a paper-grade score. LPIPS is also optional and only runs if the `lpips` Python package is installed.
 
 Ubuntu A6000 installs do not need a script change for the default `loss.json` because PSNR, SSIM, and the optional lightweight FID approximation use existing dependencies. If you turn on `objective.beta.use_lpips`, install the optional LPIPS package with `INSTALL_LPIPS=1 bash linux-gpu/install_linux_a6000.sh`.

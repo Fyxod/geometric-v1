@@ -436,7 +436,7 @@ def _loss_from_metrics(
         if alpha_post is None:
             components["alpha_post_missing"] = float(objective.get("missing_metric_penalty", 10000.0))
         else:
-            components["alpha_post"] = _weight(alpha_post_config, 1.0) * float(alpha_post)
+            components["alpha_post_objective"] = _weight(alpha_post_config, 1.0) * float(alpha_post)
 
     alpha_pre_config = _metric_config(objective, "alpha_pre")
     use_alpha_pre = bool(objective.get("use_alpha_pre", True)) and _enabled(alpha_pre_config, True)
@@ -447,7 +447,7 @@ def _loss_from_metrics(
             components["alpha_pre_missing"] = float(objective.get("missing_metric_penalty", 10000.0))
         else:
             violation = max(0.0, target - float(alpha_pre))
-            components["alpha_pre"] = _weight(alpha_pre_config, 5.0) * violation * violation
+            components["alpha_pre_penalty"] = _weight(alpha_pre_config, 5.0) * violation * violation
 
     beta_config = _metric_config(objective, "beta")
     if bool(objective.get("use_beta", True)) and _enabled(beta_config, True):
@@ -470,12 +470,12 @@ def _loss_from_metrics(
                 violation = max(0.0, target - float(value))
             else:
                 violation = max(0.0, float(value) - target)
-            components[metric_name] = weight * violation * violation
+            components[f"{metric_name}_penalty"] = weight * violation * violation
 
     reg_config = _metric_config(objective, "parameter_regularization")
     if _enabled(reg_config, True):
         diff = vector - initial_vector
-        components["parameter_regularization"] = _weight(reg_config, 0.01) * float(diff @ diff)
+        components["parameter_regularization_penalty"] = _weight(reg_config, 0.01) * float(diff @ diff)
 
     for value in components.values():
         total += float(value)
@@ -575,11 +575,17 @@ class LossRunner:
             self.initial_vector,
         )
         selected_model = selected_diffusion_model(self.config.diffusion)
+        metric_summary = {
+            "alpha_pre": alpha_pre,
+            "alpha_post": alpha_post,
+            "beta": beta_metrics,
+        }
         record = {
             "iteration": self.evaluation_count,
             "label": label,
             "loss": loss,
             "loss_components": components,
+            "metric_summary": metric_summary,
             "parameters": parameters,
             "normalized_parameters": clipped.tolist(),
             "metrics": metrics,
@@ -646,6 +652,7 @@ class LossRunner:
             "best_parameters": best.get("parameters"),
             "best_alpha_pre": (best.get("metrics") or {}).get("alpha_pre") if isinstance(best.get("metrics"), dict) else None,
             "best_alpha_post": (best.get("metrics") or {}).get("alpha_post") if isinstance(best.get("metrics"), dict) else None,
+            "best_metrics": best.get("metric_summary") or best.get("metrics"),
             "best_beta_metrics": {
                 key: value
                 for key, value in (best.get("metrics") or {}).items()

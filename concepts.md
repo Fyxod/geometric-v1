@@ -170,6 +170,7 @@ The final `report.json` records:
 - best parameters
 - best `alpha_pre`
 - best `alpha_post`
+- `best_metrics`, which separates raw `alpha_pre`, raw `alpha_post`, and beta metrics
 - beta metrics
 - final loss
 - optimizer settings
@@ -178,6 +179,8 @@ The final `report.json` records:
 - DeepFace models used
 
 The `best/` folder contains the best perturbed image and best post-diffusion image. The `iterations/` folder contains every evaluated candidate with its own `metrics.json`.
+
+In each `metrics.json`, read raw scores from `metrics` or `metric_summary`. Read `loss_components` as cost terms. A value like `alpha_pre_penalty: 0` is good: it means raw `alpha_pre` met or exceeded its target, so no penalty was added.
 
 Good signs:
 
