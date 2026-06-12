@@ -1,0 +1,194 @@
+{
+  "pipeline_config": "pipeline.json",
+  "input": "samples/image.png",
+  "output_dir": "output",
+  "prompt": "add sunglasses",
+  "seed": 42,
+  "randomize_seed": false,
+  "random_seed_range": [1, 2147483647],
+  "perturbations": [
+    {
+      "method": "homography",
+      "enabled": false,
+      "strength": 0.04
+    },
+    {
+      "method": "thin-plate-spline",
+      "enabled": true,
+      "strength": 0.002,
+      "grid": 7
+    },
+    {
+      "method": "delaunay",
+      "enabled": true,
+      "strength": 0.008,
+      "grid": 8
+    },
+    {
+      "method": "fft-phase",
+      "enabled": true,
+      "strength": 2500.0,
+      "coefficients": 6
+    },
+    {
+      "method": "elastic",
+      "enabled": true,
+      "strength": 0.005,
+      "sigma": 12.0
+    },
+    {
+      "method": "rolling-shutter",
+      "enabled": true,
+      "strength": 0.004,
+      "rolling_frequency": 1.5,
+      "rolling_phase": 0.0,
+      "rolling_shear": 0.02,
+      "rolling_acceleration": 0.0
+    }
+  ],
+  "diffusion": {
+    "from_pipeline": true
+  },
+  "identity": {
+    "from_pipeline": true,
+    "overrides": {
+      "models": {
+        "SFace": true,
+        "OpenFace": false,
+        "Facenet": true,
+        "Facenet512": true
+      }
+    }
+  },
+  "optimizer": {
+    "type": "spsa",
+    "iterations": 8,
+    "learning_rate": 0.05,
+    "finite_difference_epsilon": 0.07,
+    "spsa_delta": 0.07,
+    "patience": 0,
+    "random_restarts": 1,
+    "save_every": 1,
+    "stop": {
+      "loss_below": null,
+      "post_identity_distance_above": 50.0,
+      "output_disruption_above": null
+    }
+  },
+  "objective": {
+    "input_stealth": {
+      "enabled": true,
+      "use_psnr": true,
+      "use_ssim": true,
+      "use_lpips": false,
+      "psnr": {
+        "target": 28.0,
+        "weight": 2.0
+      },
+      "ssim": {
+        "target": 0.88,
+        "weight": 25.0
+      },
+      "lpips": {
+        "target": 0.25,
+        "weight": 2.0
+      }
+    },
+    "identity": {
+      "enabled": true,
+      "use_pre_identity": true,
+      "use_post_identity": true,
+      "pre_identity_target": 90.0,
+      "pre_identity_weight": 5.0,
+      "post_identity_distance_weight": 1.0,
+      "models": {
+        "SFace": true,
+        "OpenFace": false,
+        "Facenet": true,
+        "Facenet512": true
+      },
+      "strict": false
+    },
+    "vae_latent": {
+      "enabled": true,
+      "use_input_vae": false,
+      "use_output_vae": true,
+      "input_distance_weight": 0.0,
+      "output_distance_weight": 1.0,
+      "strict": false
+    },
+    "clip_image": {
+      "enabled": false,
+      "use_input_clip": false,
+      "use_output_clip": true,
+      "input_distance_weight": 0.0,
+      "output_distance_weight": 1.0,
+      "model_id": "openai/clip-vit-base-patch32",
+      "strict": false
+    },
+    "output_disruption": {
+      "enabled": true,
+      "use_pixel_l2": true,
+      "use_ssim_drop": true,
+      "use_lpips": false,
+      "pixel_l2_distance_weight": 1.0,
+      "ssim_drop_weight": 1.0,
+      "lpips_distance_weight": 1.0
+    },
+    "parameter_regularization": {
+      "enabled": true,
+      "weight": 0.01
+    }
+  },
+  "parameters": {
+    "initialization": "fixed",
+    "initial_values": {
+      "thin-plate-spline": {
+        "strength": 0.002,
+        "grid": 7
+      },
+      "delaunay": {
+        "strength": 0.008,
+        "grid": 8
+      },
+      "fft-phase": {
+        "strength": 2500.0,
+        "coefficients": 6
+      },
+      "elastic": {
+        "strength": 0.005,
+        "sigma": 12.0
+      },
+      "rolling-shutter": {
+        "strength": 0.004,
+        "rolling_frequency": 1.5,
+        "rolling_shear": 0.02,
+        "rolling_acceleration": 0.0
+      }
+    },
+    "bounds": {
+      "thin-plate-spline": {
+        "strength": [0.0, 0.006],
+        "grid": [5, 9]
+      },
+      "delaunay": {
+        "strength": [0.0, 0.012],
+        "grid": [6, 12]
+      },
+      "fft-phase": {
+        "strength": [0.0, 10000.0],
+        "coefficients": [4, 16]
+      },
+      "elastic": {
+        "strength": [0.0, 0.012],
+        "sigma": [6.0, 18.0]
+      },
+      "rolling-shutter": {
+        "strength": [0.0, 0.012],
+        "rolling_frequency": [0.5, 3.0],
+        "rolling_shear": [0.0, 0.06],
+        "rolling_acceleration": [-0.03, 0.03]
+      }
+    }
+  }
+}

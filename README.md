@@ -84,11 +84,13 @@ run_deepface_model_check.py
 run_brute_force.py
 run_batch_brute_force.py
 run_loss_pipeline.py
+run_embedding_loss_pipeline.py
 run_ui.py
 pipeline.json
 brute.json
 batch_brute.json
 loss.json
+embedding_loss.json
 sample_jsons/
 ```
 
@@ -460,7 +462,87 @@ FID note: the built-in FID option is intentionally marked weak for single-image 
 
 Ubuntu A6000 installs do not need a script change for the default `loss.json` because PSNR, SSIM, and the optional lightweight FID approximation use existing dependencies. If you turn on `objective.beta.use_lpips`, install the optional LPIPS package with `INSTALL_LPIPS=1 bash linux-gpu/install_linux_a6000.sh`.
 
-For a deeper explanation of alpha/beta terms, SPSA, black-box optimization, and how to interpret the reports, see `concepts.md`.
+For a deeper explanation of alpha/beta terms, SPSA, black-box optimization, and how to interpret the reports, see `loss_concepts.md`.
+
+## Embedding-Loss Optimization
+
+`embedding_loss.json` runs a practical anti-edit optimizer on top of the same perturbation and diffusion stack. It is still black-box with respect to Flux generation; it does not hook Flux transformer hidden states. Instead, it compares the accessible inputs and outputs around the configured diffusion model:
+
+```text
+F(original, prompt)
+F(perturbed, prompt)
+```
+
+where `F` is the active diffusion model, usually `flux2_klein`.
+
+Run:
+
+```powershell
+python run_embedding_loss_pipeline.py --config embedding_loss.json
+```
+
+Module form:
+
+```powershell
+python -m geometric_v1.embedding_loss_pipeline --config embedding_loss.json
+```
+
+How it differs from `loss.json`:
+
+- `loss.json` is mainly identity-match loss plus visual beta constraints.
+- `embedding_loss.json` combines identity, active diffusion VAE latents, optional CLIP image embeddings, output disruption, and input stealth constraints.
+- Success can mean identity mismatch, a failed edit, a degraded output, or a generated image that changes meaningfully compared with the clean diffusion result.
+
+Enabled by default:
+
+- `input_stealth.use_psnr` and `input_stealth.use_ssim`: keep `original.png` and `perturbed.png` close.
+- `identity.use_pre_identity`: penalize perturbations that already break identity before diffusion.
+- `identity.use_post_identity`: reward post-diffusion identity distance between `original_diffused.png` and `perturbed_diffused.png`.
+- `vae_latent.use_output_vae`: reward distance between output VAE latents when the active diffusion pipeline exposes a VAE.
+- `output_disruption.use_pixel_l2` and `output_disruption.use_ssim_drop`: reward visible/generated-output disruption.
+
+Optional and disabled by default:
+
+- `input_stealth.use_lpips` and `output_disruption.use_lpips`: use LPIPS if the optional `lpips` package is installed.
+- `clip_image.enabled`: use CLIP image embeddings through `transformers`; useful, but it may download another model.
+- `vae_latent.use_input_vae` and `clip_image.use_input_clip`: advanced input embedding distances. They are off by default because they can fight the visual stealth goal.
+
+Identity metrics prefer direct DeepFace embeddings via `DeepFace.represent`. If direct embedding extraction fails for a model, the runner falls back to `DeepFace.verify` distance and marks that model metric as `source: "verify_distance"`. One model failure does not crash a run unless `objective.identity.strict` is `true`.
+
+The lower-is-better objective combines positive stealth/regularization penalties and negative rewards for disruption:
+
+```text
+loss =
+  input stealth penalties
+  + pre-identity penalty
+  - post-identity distance reward
+  - output VAE distance reward
+  - output CLIP distance reward
+  - output disruption rewards
+  + parameter regularization
+```
+
+Output layout:
+
+```text
+output/embedding_loss_run_<timestamp>/
+  embedding_loss_config.json
+  original.png
+  original_diffused.png
+  best/
+    perturbed.png
+    perturbed_diffused.png
+    report.json
+  iterations/
+    iter_000001/
+      perturbed.png
+      perturbed_diffused.png
+      metrics.json
+  embedding_loss_history.json
+  report.json
+```
+
+Reports include `loss_components`, raw metrics, per-model identity sources/errors, VAE/CLIP backend status, diffusion model used, sampled perturbation parameters, and all output paths. For the conceptual background, see `embedding_loss_concepts.md`.
 
 ## Sample Configs
 
@@ -471,6 +553,7 @@ sample_jsons/sample_pipeline.json
 sample_jsons/sample_brute.json
 sample_jsons/sample_batch_brute.json
 sample_jsons/sample_loss.json
+sample_jsons/sample_embedding_loss.json
 ```
 
 ## Config Shape
