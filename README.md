@@ -466,7 +466,9 @@ For a deeper explanation of alpha/beta terms, SPSA, black-box optimization, and 
 
 ## Embedding-Loss Optimization
 
-`embedding_loss.json` runs a practical anti-edit optimizer on top of the same perturbation and diffusion stack. It is still black-box with respect to Flux generation; it does not hook Flux transformer hidden states. Instead, it compares the accessible inputs and outputs around the configured diffusion model:
+`embedding_loss.json` runs a practical anti-edit optimizer on top of the same perturbation and diffusion stack. The `loss3` branch is a continuation of the `loss2` embedding-loss work: the existing VAE, CLIP, identity, input stealth, and output disruption terms are preserved, and Flux transformer/internal feature loss is added as an optional experimental term.
+
+By default the optimizer still works like loss2 and compares the accessible inputs and outputs around the configured diffusion model:
 
 ```text
 F(original, prompt)
@@ -506,6 +508,7 @@ Optional and disabled by default:
 - `input_stealth.use_lpips` and `output_disruption.use_lpips`: use LPIPS if the optional `lpips` package is installed.
 - `clip_image.enabled`: use CLIP image embeddings through `transformers`; useful, but it may download another model.
 - `vae_latent.use_input_vae` and `clip_image.use_input_clip`: advanced input embedding distances. They are off by default because they can fight the visual stealth goal.
+- `flux_transformer.enabled`: experimental Flux internal hidden-feature distance. It attempts to hook the active `flux2_klein` transformer's forward pass during the normal original and perturbed diffusion calls. It is off by default because Diffusers internals can change and because hidden activations can increase GPU memory pressure.
 
 Identity metrics prefer direct DeepFace embeddings via `DeepFace.represent`. If direct embedding extraction fails for a model, the runner falls back to `DeepFace.verify` distance and marks that model metric as `source: "verify_distance"`. One model failure does not crash a run unless `objective.identity.strict` is `true`.
 
@@ -518,9 +521,46 @@ loss =
   - post-identity distance reward
   - output VAE distance reward
   - output CLIP distance reward
+  - Flux transformer feature distance reward
   - output disruption rewards
   + parameter regularization
 ```
+
+### Flux Transformer Feature Loss
+
+The optional `objective.flux_transformer` block is designed for Flux-based anti-edit/deepfake-prevention experiments. When enabled, the runner tries to attach guarded PyTorch forward hooks to discovered Flux transformer blocks, pools hidden tensors immediately, moves the pooled vectors to CPU, and compares the original-side features with each perturbed candidate.
+
+Default block:
+
+```json
+"flux_transformer": {
+  "enabled": false,
+  "strict": false,
+  "capture_mode": "forward_hook",
+  "compare": "original_vs_perturbed",
+  "use_input_features": false,
+  "use_denoising_features": true,
+  "layers": ["auto"],
+  "timesteps": ["early", "middle"],
+  "pooling": "mean",
+  "distance": "cosine",
+  "weight": 1.0,
+  "max_feature_elements": 262144,
+  "cache_original_features": true
+}
+```
+
+Important behavior:
+
+- `enabled: false` means the term is inert and reported as disabled.
+- `strict: false` means hook failures are reported as `available: false` and the run continues with the other loss terms.
+- `strict: true` turns hook unavailability into a hard error.
+- `layers: ["auto"]` hooks a small first/middle/last set of discovered transformer blocks. Numeric indexes or block names can be used when you know the exact installed model structure.
+- `timesteps` are approximate buckets derived from hook call order, because a stable public Flux timestep callback is not always exposed.
+- `distance` supports `cosine` and `normalized_l2`.
+- The reward is `-weight * feature_distance`, so larger internal feature distance lowers the objective.
+
+This does not guarantee the edit will visibly fail. Flux may still correct or reconstruct the image from other signals, so this term is best combined with post-identity distance, output disruption, and input stealth losses.
 
 Output layout:
 
@@ -542,7 +582,7 @@ output/embedding_loss_run_<timestamp>/
   report.json
 ```
 
-Reports include `loss_components`, raw metrics, per-model identity sources/errors, VAE/CLIP backend status, diffusion model used, sampled perturbation parameters, and all output paths. For the conceptual background, see `embedding_loss_concepts.md`.
+Reports include `loss_components`, raw metrics, per-model identity sources/errors, VAE/CLIP/Flux backend status, diffusion model used, sampled perturbation parameters, and all output paths. Each iteration's `metrics.flux_transformer` includes enabled/availability state, captured layers/timestep buckets when available, feature shapes, pooled shapes, distance, warnings/errors, and loss contribution. For the conceptual background, see `embedding_loss_concepts.md`.
 
 ## Sample Configs
 

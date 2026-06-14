@@ -35,6 +35,12 @@ from .diffusion import (
     resolve_device,
     selected_diffusion_model,
 )
+from .flux_features import (
+    CapturedFluxFeatures,
+    capture_flux_features_during_generation,
+    compare_flux_features,
+    flux_transformer_enabled,
+)
 from .image_io import load_image, load_pil_image, save_image, save_pil
 from .loss_pipeline import (
     _config_block,
@@ -528,6 +534,11 @@ def _loss_from_embedding_metrics(
         if bool(clip_config.get("use_output_clip", True)) and isinstance(clip.get("output"), dict):
             components["output_clip_distance_reward"] = -float(clip_config.get("output_distance_weight", 1.0)) * float(clip["output"].get("cosine_distance", 0.0))
 
+    flux_config = _metric_config(objective, "flux_transformer")
+    flux = metrics.get("flux_transformer", {})
+    if _enabled(flux_config, False) and flux.get("available") and flux.get("distance") is not None:
+        components["flux_transformer_feature_reward"] = -float(flux_config.get("weight", 1.0)) * float(flux["distance"])
+
     disruption_config = _metric_config(objective, "output_disruption")
     disruption = metrics.get("output_disruption", {})
     if _enabled(disruption_config, True):
@@ -573,6 +584,7 @@ class EmbeddingLossRunner:
         self.original_diffused_vae: np.ndarray | None = None
         self.original_clip: np.ndarray | None = None
         self.original_diffused_clip: np.ndarray | None = None
+        self.original_flux_features: CapturedFluxFeatures | None = None
         self.embedding_backends: dict[str, Any] = {}
 
     def prepare(self) -> None:
@@ -585,12 +597,23 @@ class EmbeddingLossRunner:
         save_pil(self.original_path, original_pil)
         if self.config.diffusion.cpu:
             os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-        original_diffused = edit_image(original_pil, self.config.prompt, self.config.diffusion)
+        original_diffused, self.original_flux_features = self._edit_with_flux_features(original_pil)
         save_pil(self.original_diffused_path, original_diffused)
 
         self.original_array = load_image(self.original_path)
         self.original_diffused_array = load_image(self.original_diffused_path)
         self._cache_original_backends()
+
+    def _edit_with_flux_features(self, image: Any) -> tuple[Any, CapturedFluxFeatures | None]:
+        flux_config = _metric_config(self.config.objective, "flux_transformer")
+        if not flux_transformer_enabled(flux_config):
+            return edit_image(image, self.config.prompt, self.config.diffusion), None
+        edited, features = capture_flux_features_during_generation(
+            self.config.diffusion,
+            flux_config,
+            lambda: edit_image(image, self.config.prompt, self.config.diffusion),
+        )
+        return edited, features
 
     def _cache_original_backends(self) -> None:
         identity_config = _metric_config(self.config.objective, "identity")
@@ -625,6 +648,17 @@ class EmbeddingLossRunner:
                 self.original_diffused_clip, info = _clip_embedding(self.original_diffused_path, model_id, self.config.diffusion)
                 self.embedding_backends["output_clip"] = info
 
+        flux_config = _metric_config(self.config.objective, "flux_transformer")
+        if flux_transformer_enabled(flux_config):
+            self.embedding_backends["flux_transformer"] = {
+                "enabled": True,
+                "capture_mode": flux_config.get("capture_mode", "forward_hook"),
+                "compare": flux_config.get("compare", "original_vs_perturbed"),
+                "use_input_features": bool(flux_config.get("use_input_features", False)),
+                "use_denoising_features": bool(flux_config.get("use_denoising_features", True)),
+                "original_capture": self.original_flux_features.report if self.original_flux_features else {"available": False},
+            }
+
     def evaluate(self, vector: np.ndarray, label: str) -> dict[str, Any]:
         self.evaluation_count += 1
         iteration_name = f"iter_{self.evaluation_count:06d}"
@@ -642,18 +676,27 @@ class EmbeddingLossRunner:
         perturbed_path = iteration_dir / "perturbed.png"
         perturbed_diffused_path = iteration_dir / "perturbed_diffused.png"
         save_image(perturbed_path, perturbed_array)
-        perturbed_diffused = edit_image(load_pil_image(perturbed_path), self.config.prompt, self.config.diffusion)
+        perturbed_diffused, candidate_flux_features = self._edit_with_flux_features(load_pil_image(perturbed_path))
         save_pil(perturbed_diffused_path, perturbed_diffused)
         perturbed_diffused_array = load_image(perturbed_diffused_path)
 
         errors: dict[str, Any] = {}
-        metrics = self._metrics_for_candidate(perturbed_array, perturbed_path, perturbed_diffused_array, perturbed_diffused_path, errors)
+        metrics = self._metrics_for_candidate(
+            perturbed_array,
+            perturbed_path,
+            perturbed_diffused_array,
+            perturbed_diffused_path,
+            candidate_flux_features,
+            errors,
+        )
         loss, components = _loss_from_embedding_metrics(
             self.config.objective,
             metrics,
             clipped,
             self.initial_vector,
         )
+        if isinstance(metrics.get("flux_transformer"), dict):
+            metrics["flux_transformer"]["loss_contribution"] = components.get("flux_transformer_feature_reward")
         selected_model = selected_diffusion_model(self.config.diffusion)
         record = {
             "iteration": self.evaluation_count,
@@ -703,6 +746,7 @@ class EmbeddingLossRunner:
         perturbed_path: Path,
         perturbed_diffused_array: np.ndarray,
         perturbed_diffused_path: Path,
+        candidate_flux_features: CapturedFluxFeatures | None,
         errors: dict[str, Any],
     ) -> dict[str, Any]:
         assert self.original_array is not None
@@ -780,6 +824,19 @@ class EmbeddingLossRunner:
                 if not status.get("ok"):
                     errors["output_clip"] = status | {"candidate": info}
 
+        flux_config = _metric_config(self.config.objective, "flux_transformer")
+        metrics["flux_transformer"] = compare_flux_features(
+            self.original_flux_features,
+            candidate_flux_features,
+            flux_config,
+        )
+        if flux_transformer_enabled(flux_config) and not metrics["flux_transformer"].get("available"):
+            errors["flux_transformer"] = {
+                "error": metrics["flux_transformer"].get("error"),
+                "original": metrics["flux_transformer"].get("original"),
+                "candidate": metrics["flux_transformer"].get("candidate"),
+            }
+
         return metrics
 
     def _write_best(self, record: dict[str, Any], perturbed_path: Path, perturbed_diffused_path: Path) -> None:
@@ -817,6 +874,7 @@ class EmbeddingLossRunner:
                 "resolved_device": resolve_device(self.config.diffusion),
             },
             "embedding_backends": self.embedding_backends,
+            "flux_transformer": self._final_flux_transformer_report(best),
             "evaluations": len(self.history),
             "outputs": {
                 "embedding_loss_config": str(self.run_dir / "embedding_loss_config.json"),
@@ -831,6 +889,31 @@ class EmbeddingLossRunner:
         }
         _write_json(self.run_dir / "report.json", report)
         return report
+
+    def _final_flux_transformer_report(self, best: dict[str, Any]) -> dict[str, Any]:
+        flux_config = _metric_config(self.config.objective, "flux_transformer")
+        if not flux_transformer_enabled(flux_config):
+            return {"enabled": False, "available": False}
+        metrics = best.get("metrics") if isinstance(best, dict) else {}
+        flux = metrics.get("flux_transformer", {}) if isinstance(metrics, dict) else {}
+        candidate = flux.get("candidate", {}) if isinstance(flux, dict) else {}
+        original = flux.get("original", {}) if isinstance(flux, dict) else {}
+        errors: list[Any] = []
+        for source in (flux, original, candidate):
+            if isinstance(source, dict) and source.get("error"):
+                errors.append(source["error"])
+        return {
+            "enabled": True,
+            "available": bool(flux.get("available", False)) if isinstance(flux, dict) else False,
+            "capture_method": flux.get("capture_method", flux_config.get("capture_mode", "forward_hook")) if isinstance(flux, dict) else flux_config.get("capture_mode", "forward_hook"),
+            "selected_layers": candidate.get("layers_captured") or flux_config.get("layers", ["auto"]),
+            "selected_timesteps": candidate.get("timesteps_captured") or flux_config.get("timesteps", ["early", "middle"]),
+            "distance_type": flux_config.get("distance", "cosine"),
+            "best_distance": flux.get("distance") if isinstance(flux, dict) else None,
+            "errors": errors,
+            "warnings": candidate.get("warnings", []) if isinstance(candidate, dict) else [],
+            "strict": bool(flux_config.get("strict", False)),
+        }
 
 
 def _output_disruption_score(metrics: dict[str, Any]) -> float | None:

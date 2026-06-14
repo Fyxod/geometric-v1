@@ -126,6 +126,21 @@
       "model_id": "openai/clip-vit-base-patch32",
       "strict": false
     },
+    "flux_transformer": {
+      "enabled": false,
+      "strict": false,
+      "capture_mode": "forward_hook",
+      "compare": "original_vs_perturbed",
+      "use_input_features": false,
+      "use_denoising_features": true,
+      "layers": ["auto"],
+      "timesteps": ["early", "middle"],
+      "pooling": "mean",
+      "distance": "cosine",
+      "weight": 1.0,
+      "max_feature_elements": 262144,
+      "cache_original_features": true
+    },
     "output_disruption": {
       "enabled": true,
       "use_pixel_l2": true,
